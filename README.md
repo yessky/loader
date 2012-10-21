@@ -1,8 +1,9 @@
-# A Pure Module Loader runs under web browser
+A Pure Module Loader runs under web browser
+===
 
 KModule is a pure and light implemention of CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition</a> and <a href="" target="_blank">Modules/LoaderPlugin</a>.
 
-# Usage
+## Usage
 
 1. define a module.
 
@@ -18,14 +19,14 @@ KModule is a pure and light implemention of CommonJS <a href="" target="_blank">
 
 	see more: <a href="http://veryos.com/projects/kmodule" target="_blank">http://veryos.com/projects/kmodule</a>
 
-# Contact
+## Contact
 
 admin@veryos.com aaron.xiao
 
-# Help
+## Help
 
 If you have any questions, feel free to create ticket or contact via email.
 
-# License
+## License
 
 KModule is available under the terms of the MIT License.
