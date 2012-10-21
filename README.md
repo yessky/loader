@@ -29,4 +29,4 @@ If you have any questions, feel free to <a href="https://github.com/yessky/kmodu
 
 ## License
 
-KModule is available under the terms of the <a href="http://veryos.com/projects/LICENSE.md" target="_blank">MIT License</a>.
+KModule is available under the terms of the <a href="http://veryos.com/lab/license" target="_blank">MIT License</a>.
