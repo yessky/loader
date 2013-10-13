@@ -1,7 +1,7 @@
-A Pure Module Loader runs under web browser
+A Light and Easy-To-Use Module Loader
 ===
 
-KModule is a pure and light implemention of CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition</a> and <a href="" target="_blank">Modules/LoaderPlugin</a>.
+k.js is a pure and light implemention of CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition</a> and <a href="" target="_blank">Modules/LoaderPlugin</a>.
 
 simple samples at: <a href="http://test.veryos.com/core/index.html" target="_blank">http://test.veryos.com/core/index.html</a>.
 
