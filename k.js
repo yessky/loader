@@ -1,299 +1,641 @@
-/**
- * @author aaron.xiao
+/*
+ * KJS - A Light And Easy-To-Use Module Loader
+ * Copyright (C) 2013 aaron.xiao
+ * Author: aaron.xiao <admin@veryos.com>
+ * Version: @version@
+ * License: http://dev.veryos.com/MIT-LICENSE
  */
 
-/**
- * implemention of vero's kernel
- * it includes 3 parts:
- * 1. an AMD loader implemention
- * 2. explict 'vero' namespace in global env & domready handler
- * 3. subscribe/publish an implmention of observe pattern
- */
+(function( global, undefined ) {
 
-(function( global ) {
-	var document = global.document,
-		location = global.location,
+	var version = '@version@',
 
-		_kjs = global.kjs,
-		_K = global.K,
-
+		empty = {},
+		push = [].push,
 		toString = {}.toString,
-		indexOf = [].indexOf,
-		splice = [].splice,
-
-		isFunction = function( it ) {
-			return toString.call( it ) == "[object Function]";
-		},
-
-		isString = function( it ) {
-			return toString.call( it ) == "[object String]";
-		},
-
-		isArray = function( it ) {
-			return toString.call( it ) == "[object Array]";
-		},
-
-		mixin = function( target, source ) {
-			for ( var prop in source ) {
-				target[prop] = source[prop];
-			}
-			return target;
-		},
-
-		kjs = {
-			version: 'dev 1.0'
-		},
-
-		K = kjs,
-
-		hub;
-
-	// subscrible/publish/unsubscribe
-
-	hub = (function() {
-		var identifier = 1,
-			channels = {},
-			counter = {};
-
-		return {
-			subscribe: function( name, listener ) {
-				if ( !isString(name) || !isFunction(listener) ) {
-					return;
-				}
-
-				var done = channels[name];
-
-				if ( !done ) {
-					done = channels[name] = {};
-					counter[name] = 0;
-				}
-
-				done[identifier] = listener;
-				counter[name] += 1;
-
-				return [ name, identifier++ ];
-			},
-
-			publish: function( name ) {
-				var done, args, index;
-
-				if ( !name || !isString(name) ) {
-					return;
-				}
-
-				done = channels[name];
-				args = [].slice.call( arguments, 1 );
-
-				for ( index in done ) {
-					done[index].apply( this, args );
-				}
-			},
-
-			unsubscribe: function unsubscribe( handle ) {
-				var isa = isArray( handle ),
-					name = isa ? handle[0] : handle,
-					done;
-
-				if ( !name || !isString(name) ) {
-					return;
-				}
-
-				done = channels[name];
-
-				if ( isa ) {
-					counter[name] -= 1;
-					delete done[handle[1]];
-				}
-
-				if ( !isa || counter[name] === 0 ) {
-					delete channels[name];
-					delete counter[name];
-				}
-			}
-		};
-	})();
-
-	mixin( K, hub );
-
-	// DOM ready stuffs
-
-	var isStraped = false,
-		isDOMReady = false,
-		readyHandlers = [],
-		DOMContentLoaded;
-
-	if ( document.addEventListener ) {
-		DOMContentLoaded = function() {
-			document.removeEventListener( "DOMContentLoaded", DOMContentLoaded, false );
-			doneDOMReady();
-		};
-	} else if ( document.attachEvent ) {
-		DOMContentLoaded = function() {
-			if ( document.readyState === "complete" ) {
-				document.detachEvent( "onreadystatechange", DOMContentLoaded );
-				doneDOMReady();
-			}
-		};
-	}
-
-	K.ready = function( handler ) {
-		if ( isDOMReady ) {
-			handler();
-		} else {
-			readyHandlers.push( handler );
-		}
-	};
-
-	hookDOMReady();
-
-	function doneDOMReady() {
-		if ( !isDOMReady ) {
-			if ( !document.body ) {
-				return setTimeout( doneDOMReady, 1 );
-			}
-
-			isDOMReady = true;
-
-			if ( readyHandlers && readyHandlers.length ) {
-				var handler;
-
-				while ( readyHandlers.length ) {
-					handler = readyHandlers.shift();
-
-					if ( typeof handler == 'function' ) {
-						handler();
-					}
-				}
-
-				readyHandlers = null;
-			}
-		}
-	}
-
-	function doScrollCheck() {
-		if ( isDOMReady ) {
-			return;
-		}
-
-		try {
-			document.documentElement.doScroll( "left" );
-		} catch( e ) {
-			setTimeout( doScrollCheck, 1 );
-			return;
-		}
-
-		doneDOMReady();
-	}
-
-	function hookDOMReady() {
-		if ( document.readyState === "complete" ) {
-			return setTimeout( doneDOMReady, 1 );
-		}
-
-		if ( document.addEventListener ) {
-			document.addEventListener( "DOMContentLoaded", DOMContentLoaded, false );
-			global.addEventListener( "load", doneDOMReady, false );
-		} else if ( document.attachEvent ) {
-			var isFrame = false;
-
-			document.attachEvent( "onreadystatechange", DOMContentLoaded );
-			global.attachEvent( "onload", doneDOMReady );
-
-			try {
-				isFrame = global.frameElement == null;
-			} catch(e) {}
-
-			if ( document.documentElement.doScroll && isFrame ) {
-				doScrollCheck();
-			}
-		}
-	}
-
-	// AMD loader stuffs
-
-	var rext = /\.(?:[a-z][a-z0-9]*)$/i,
-		rslash = /([^:\/])\/\/+/g,
-		rcomment = /(\/\*([\s\S]*?)\*\/|([^:]|^)\/\/(.*)$)/mg,
-		ruri = /^(\w[^!]*)!([^!]*?)$/,
-		rdeps = /[^.]\brequire\(\s*["']([^'")]+)["']\s*\)/g,
-
-		strundefined = 'undefined',
-		isOpera = typeof(opera) !== strundefined &&
-			opera.toString() === "[object Opera]",
-		baseElement = document.getElementsByTagName('base')[0],
-		head = document.head ||
-			document.getElementsByTagName('head')[0] ||
-			document.documentElement,
+		strundef = typeof undefined,
+		isOpera = typeof opera !== strundef && opera.toString() === '[object Opera]',
 
 		interactived = false,
 		currentlyAddingScript,
 		interactiveScript,
 
-		hashURI = {},
-		hashAlias = {},
-		dataUris = {},
-		contexts = {},
-		globalContext = [],
-		declared = {},
+		rvars = /\{\{([^\{]+)\}\}/g,
+		rcomplete = navigator.platform === 'PLAYSTATION 3' ?
+			/^complete$/ : /^(complete|loaded)$/,
+		rnoise = /\\\/|\\\/\*|\[.*?(\/|\\\/|\/\*)+.*?\]/g,
+		rdeps = /"(?:\\"|[^"])*"|'(?:\\'|[^'])*'|\/\*[\S\s]*?\*\/|\/(?:\\\/|[^\/\r\n])+\/(?=[^\/])|\/\/.*|\.\s*require|(?:^|[^$])\brequire\s*\(\s*(["'])(.+?)\1\s*\)/g,
 
-		console = global.console,
-		config = {},
-		isContextWait = true,
-		waitList = [],
+		incomingQueue = [],
+		pendingQueue = [],
 
-		nowHost,
-		nowDir,
-		isLocal,
-		scriptDir,
-		dataMain;
+		resolved = {},
+		registry = {},
+		defined = {},
 
-	// Status code of module
-	var START = 0,
 		LOADING = 1,
 		LOADED = 2,
-		FETCHED = 3,
-		READY = 4,
-		DECLARED = 5,
-		ERROR = 6,
-		TIMEOUT = 7;
+		READY = 3,
+		ERROR = 4,
+
+		vars = {},
+		rules = [],
+		connects = {},
+
+		cwp = location.protocol,
+		cwd = dir( location.pathname ),
+		prefix = host( location.href ),
+		splitIndex = prefix.length,
+
+		baseElement, head, hasAttchEvent,
+		signal, kjsnode, kjsdir, appMain, scripts;
 
 	// Helpers
-	var util = {
-		notify: function ( o ) {
-			if ( o.type === 'error' ) {
-				throw o.message;
-			} else if ( console && console.log ) {
-				var exec = console[ o.type ] || console.log;
-				exec.call( console, o.message );
+	function isFunction( it ) {
+		return toString.call( it ) == '[object Function]';
+	}
+
+	function isArray( it ) {
+		return toString.call( it ) == '[object Array]';
+	}
+
+	function mixin( dest, source ) {
+		var name, value;
+		for ( name in source ) {
+			value = source[name];
+			if ( !(name in dest) || (dest[name] !== value &&
+				(!(name in empty) || empty[name] !== value)) ) {
+				dest[name] = value;
 			}
-		},
-
-		indexOf: function( vet, item ) {
-			return indexOf.call( vet, item );
 		}
-	};
+		return dest;
+	}
 
-	if ( !util.indexOf ) {
-		util.indexOf = function( vet, des ) {
-			var i = 0,
-				len = vet.length;
-	
-			for ( ; i < len; i++ ) {
-				if ( vet[i] === des ) {
-					return i;
+	// Path utils
+
+	function normalizeArray( parts, allowAboveRoot ) {
+		// if the path tries to go above the root, `up` ends up > 0
+		var up = 0, last;
+		for ( var i = parts.length - 1; i >= 0; i-- ) {
+			last = parts[i];
+			if ( last === '.' ) {
+				parts.splice(i, 1);
+			} else if ( last === '..' ) {
+				parts.splice( i, 1 );
+				up++;
+			} else if ( up ) {
+				parts.splice( i, 1 );
+				up--;
+			}
+		}
+
+		// if the path is allowed to go above the root, restore leading ..s
+		if ( allowAboveRoot ) {
+			for ( ; up--; up ) {
+				parts.unshift( '..' );
+			}
+		}
+
+		return parts;
+	}
+
+	function normalize( path ) {
+		var isAbsolute = path.charAt(0) === '/',
+			trailingSlash = path.substr(-1) === '/',
+			parts = path.split('/'), ret = [], part;
+
+		for ( var i = 0, l = parts.length; i < l; i++ ) {
+			part = parts[i];
+			if ( !!part ) {
+				ret.push( part );
+			}
+		}
+
+		// Normalize the path
+		path = normalizeArray( ret, !isAbsolute ).join('/');
+
+		if ( !path && !isAbsolute ) {
+			path = '.';
+		}
+		if ( path && trailingSlash ) {
+			path += '/';
+		}
+
+		return (isAbsolute ? '/' : '') + path;
+	}
+
+	function dir( uri ) {
+		var m = uri.match( /.*(?=\/.*$)/ );
+		return ( m ? m[0] : '.' ) + '/';
+	}
+
+	function host( uri ) {
+		var m = uri.match( /^(\w+:\/\/[^\/]*)\/?.*$/ );
+		return m && m[1] ? m[1] : '';
+	}
+
+	function filename( id ) {
+		id = id.indexOf(':/') === -1 ? prefix + id : id;
+		return (id.slice(-3) === '.js' || id.indexOf('?') > -1 || id.slice(-1) === '/') ? id : id + '.js';
+	}
+
+	function resolve( path, rel, normalized ) {
+		var part, parts;
+
+		if ( path in resolved ) {
+			return path;
+		}
+
+		// Replace registered varaibles '{{var}}'
+		if ( path.indexOf('{{') > -1 ) {
+			path = path.replace(rvars, function( a, b ) {
+				return vars[b];
+			});
+		}
+
+		if ( path.indexOf('//') === 0 ) {
+			path = cwp + path;
+			if ( path.indexOf(prefix) === 0 ) {
+				path = path.substring( splitIndex );
+			}
+		} else if ( path.indexOf(':/') > -1 ) {
+			if ( path.indexOf(prefix) === 0 ) {
+				path = path.substring( splitIndex );
+			}
+		} else {
+			part = path.charAt(0);
+
+			if ( part === '/' ) {
+				path = normalized ? path : normalize( path );
+			} else {
+				if ( normalized ) {
+					path = rel ? normalize( rel + path ) : path;
+				} else {
+					path = normalize( (rel || cwd) + path );
 				}
 			}
-	
-			return -1;
+		}
+
+		// Apply map rules
+		path = rules.length ? mapped( path ) : path;
+		resolved[path] = 1;
+
+		return path;
+	}
+
+	function mapped( path ) {
+		var i = -1, val = path, rule;
+
+		while ( (rule = rules[++i]) ) {
+			path = isFunction(rule) ?
+				( rule(val) || val ) : val.replace( rule[0], rule[1] );
+
+			if ( path !== val ) {
+				break;
+			}
+		}
+
+		return path;
+	}
+
+	function makeModuleMap( id, rel, normalized ) {
+		var mid, pid, i;
+
+		if ( (i = id.indexOf('!')) > 0 ) {
+			mid = resolve( id.substr(i + 1), rel, normalized );
+			pid = resolve( id.substr(0, i), rel, normalized );
+		} else {
+			mid = resolve( id, rel, normalized );
+		}
+
+		return {
+			id: pid ? pid + '!' + mid : mid,
+			mid: mid,
+			pid: pid
 		};
 	}
 
-	// Public define api
-	function define( name, deps, factory ) {
-		if ( !isString(name) ) {
+	head = document.getElementsByTagName('head')[0];
+	hasAttchEvent = head.attachEvent && !(head.attachEvent.toString &&
+		head.attachEvent.toString().indexOf('[native code]') === -1);
+    baseElement = document.getElementsByTagName('base')[0];
+    head = baseElement ? baseElement.parentNode : head;
+
+	function getInteractiveScript() {
+		if ( interactiveScript && interactiveScript.readyState === 'interactive' ) {
+			return interactiveScript;
+		}
+
+		var i = -1, script;
+
+		scripts = head.getElementsByTagName('script');
+
+		while ( (script = scripts[++i]) ) {
+			if ( script.readyState === 'interactive' ) {
+				return (interactiveScript = script);
+			}
+		}
+
+		return interactiveScript;
+	}
+
+	function loadScript( map ) {
+		var node = document.createElement('script');
+
+		node.type = 'text/javascript';
+		node.charset = 'utf-8';
+		node.async = true;
+		node.setAttribute( 'data-module', map.id );
+
+		if ( hasAttchEvent && !isOpera ) {
+			interactived = true;
+			node.attachEvent( 'onreadystatechange', onScriptLoad );
+		} else {
+			node.addEventListener( 'load', onScriptLoad, false );
+			node.addEventListener( 'error', onScriptError, false );
+		}
+
+		node.src = filename( map.mid );
+		currentlyAddingScript = node;
+		if ( baseElement ) {
+			head.insertBefore( node, baseElement );
+		} else {
+			head.appendChild( node );
+		}
+		currentlyAddingScript = null;
+
+		return node;
+	}
+
+	function onScriptLoad( e ) {
+		var node = e.currentTarget || e.srcElement;
+
+		if ( e.type === 'load' || (node && rcomplete.test(node.readyState)) ) {
+			interactiveScript = null;
+			KM.onload( node.getAttribute('data-module') );
+			removeListener( node );
+		}
+	}
+
+	function onScriptError( e ) {
+		var node = e.currentTarget || e.srcElement,
+			info = {
+				id: node.getAttribute('data-module'),
+				message: 'Script error'
+			};
+
+		removeListener( node );
+
+		signal( 'error', info )
+		return onError( info );
+	}
+
+	function removeListener( node ) {
+		if ( node.detachEvent && !isOpera ) {
+			node.detachEvent( 'onreadystatechange', onScriptLoad );
+		} else {
+			node.removeEventListener( 'load', onScriptLoad, false );
+			node.removeEventListener( 'error', onScriptError, false );
+		}
+
+		node.parentNode.removeChild( node );
+	}
+
+	function onError( data ) {
+		throw data;
+	}
+
+	function syncRequire( rel ) {
+		rel = dir( rel );
+
+		function req( id ) {
+			return defined[ makeModuleMap( id, rel, true ).id ];
+		}
+
+		req.toUrl = function( id ) {
+			id = makeModuleMap( id, rel, true ).id;
+			return normalize( id );
+		};
+
+		req.resolve = function( id, ref ) {
+			return makeModuleMap( id, rel, true ).id;
+		};
+
+		return req;
+	}
+
+	function KM( map ) {
+		this.id = map.id;
+		this.map = map;
+		this.dependencies = [];
+		this.status = 0;
+		this._chain = {};
+		this._users = [];
+		this._events = {};
+	}
+
+	KM.prototype = {
+		on: function( name, handler ) {
+			var handlers = this._events[name] || (this._events[name] = []);
+			handlers.push( handler );
+		},
+
+		signal: function( name, e ) {
+			var handlers = this._events[name];
+
+			if ( handlers ) {
+				while ( handlers.length ) {
+					handlers.shift().call( this, e );
+				}
+				delete this._events[name];
+			}
+		},
+
+		init: function( deps, factory, check ) {
+			if ( this.status > LOADING ) {
+				return;
+			}
+
+			this.status = LOADED;
+
+			if ( deps ) {
+				var rel = dir( this.map.mid ),
+					dependencies = this.dependencies,
+					hash = {}, i = -1, mid;
+
+				while ( (mid = deps[++i]) ) {
+					if ( !hash[mid] ) {
+						hash[mid] = true;
+						dependencies.push( makeModuleMap(mid, rel, true) );
+					}
+				}
+			}
+
+			this.factory = factory;
+			this._remain = this.dependencies.length;
+			signal( 'save', this.id );
+
+			if ( check ) {
+				if ( this._remain === 0 ) {
+					return this.declare();
+				}
+				this.check();
+			}
+		},
+
+		load: function() {
+			var map = this.map,
+				id = map.id,
+				rid = map.mid,
+				pid = map.pid,
+				status, plugin, info;
+
+			this.status = LOADING;
+			signal( 'load', this.id );
+
+			if ( pid ) {
+				if ( (plugin = defined[pid]) ) {
+					if ( plugin.load ) {
+						plugin.load(rid, function( factory ) {
+							KM.save( map, {factory: factory}, true );
+						});
+					} else {
+						info = {
+							id: pid,
+							message: 'Plugin "' + pid + '" did not implement "load" method'
+						};
+						signal( 'error', info );
+						return onError( info );
+					}
+				} else {
+					plugin = KM.get( makeModuleMap(pid, null, true) );
+					status = plugin.status;
+
+					plugin.on('ready', function() {
+						if ( (plugin = defined[pid]) ) {
+							if ( plugin.load ) {
+								plugin.load(rid, function( factory ) {
+									KM.save( map, {factory: factory}, true );
+								});
+							} else {
+								info = {
+									id: pid,
+									message: 'Plugin "' + pid + '" did not implement "load" method'
+								};
+								signal( 'error', info );
+								return onError( info );
+							}
+						}
+					});
+
+					if ( status < LOADING ) {
+						plugin.load();
+					} else if ( status === LOADED ) {
+						plugin.check();
+					}
+				}
+			} else {
+				loadScript( map );
+			}
+		},
+
+		// Check if dependencies are ready
+		check: function() {
+			var id = this.id,
+				deps = this.dependencies,
+				chain = this._chain,
+				status = this.status,
+				unready = [],
+				i = -1,
+				remain = 0,
+				map, mod, did, dchain;
+
+			if ( status !== LOADED ) {
+				if ( status < LOADING ) {
+					this.load();
+				}
+
+				return;
+			}
+
+			while ( (map = deps[++i]) ) {
+				did = map.id;
+
+				if ( did in defined ) {
+					this._remain--;
+				} else {
+					mod = KM.get( map );
+					status = mod.status;
+
+					if ( status < READY ) {
+						mod._users[id] = (mod._users[id] || 0) + 1;
+
+						if ( status === LOADED ) {
+							if ( did in chain ) {
+								this._remain--;
+								signal( 'circular', [id, did] );
+							} else {
+								mod._chain[id] = true;
+								mixin( mod._chain, chain );
+								mod.check();
+							}
+						} else if ( status < LOADING ) {
+							mod.load();
+						}
+					}
+				}
+			}
+
+			if ( this._remain === 0 ) {
+				return this.declare();
+			}
+		},
+
+		declare: function() {
+			var id = this.id,
+				users = this._users,
+				factory = this.factory,
+				exports = this.exports,
+				returned, name, info;
+
+			if ( isFunction(factory) ) {
+				try {
+					returned = this.exports = {};
+					exports = factory( syncRequire(id), this.exports, this );
+
+					// Set exports via 'exports.attr=sth'
+					if ( returned === this.exports ) {
+						for ( name in returned ) {
+							if ( returned.hasOwnProperty(name) ) {
+								exports = returned;
+								break;
+							}
+						}
+					}
+					// Set exports via 'module.exports=sth'
+					else if ( typeof this.exports !== strundef ) {
+						exports = this.exports;
+					}
+				} catch( e ) {
+					info = {
+						id: id,
+						message: e.message
+					};
+					this.status = ERROR;
+					this.postEnd();
+					signal( 'error', info );
+					return onError( info );
+				}
+			} else {
+				exports = factory;
+			}
+
+			// Signal it's ready to use
+			this.status = READY;
+			this.exports = defined[id] = exports;
+			this.postEnd();
+			signal( 'ready', id );
+		},
+
+		postEnd: function() {
+			var users = this._users, mid, mod;
+
+			this.signal( 'ready', this.id );
+
+			for ( mid in users ) {
+				if ( users.hasOwnProperty(mid) ) {
+					mod = registry[mid];
+					mod._remain -= users[mid];
+					if ( mod._remain === 0 ) {
+						mod.declare();
+					}
+				}
+			}
+
+			delete this._chain;
+			delete this._users;
+			delete this._remain;
+			delete this.factory;
+			delete registry[this.id];
+		}
+	};
+
+	// Fetch multiple modules
+	KM.fetch = function( uris, onComplete ) {
+		var i = -1,
+			remain = uris.length,
+			map, mod, status;
+
+		while ( (map = uris[++i]) ) {
+			if ( !(map.id in defined) ) {
+				KM.get( map ).on( 'ready', onExecute );
+			} else {
+				remain--;
+			}
+		}
+
+		if ( remain === 0 ) {
+			return onComplete();
+		}
+
+		i = -1;
+
+		while ( (map = uris[++i]) ) {
+			if ( !(map.id in defined) ) {
+				registry[map.id].check();
+			}
+		}
+
+		function onExecute() {
+			if ( --remain === 0 ) {
+				onComplete();
+			}
+		}
+	};
+
+	// A script was loaded
+	KM.onload = function( id ) {
+		var meta, mod;
+
+		if ( (meta = pendingQueue.shift()) ) {
+			pendingQueue = [];
+			KM.save( makeModuleMap(id, null, true), meta, true );
+		}
+
+		// Not a cmd module
+		if ( !(id in defined) && (mod = registry[id]) && mod.status < LOADED ) {
+			signal( 'error', mod.map.mid );
+			return onError({
+				id: mod.map.mid,
+				message: 'No define call'
+			});
+		}
+	};
+
+	KM.get = function( map ) {
+		var id = map.id;
+
+		if ( registry[id] ) {
+			return registry[id];
+		} else {
+			return ( registry[id] = new KM(map) );
+		}
+	};
+
+	KM.save = function( map, meta, check ) {
+		// Do not touch a defined module
+		if ( !(map.id in defined) ) {
+			KM.get( map ).init( meta.deps, meta.factory, check );
+		}
+	};
+
+	function define( id, deps, factory ) {
+		var meta, script, map;
+
+		if ( typeof id !== 'string' ) {
 			factory = deps;
-			deps = name;
-			name = undefined;
+			deps = id;
+			id = undefined;
 		}
 
 		if ( !isArray(deps) ) {
@@ -301,845 +643,131 @@
 			deps = [];
 		}
 
-		if ( typeof factory === strundefined ) {
-			util.notify({
-				type: 'error',
-				message: 'Invalid module defination'
-			});
-		}
-
-		var script, ctx, defs;
-
-		if ( isFunction(factory) ) {
-			if ( factory.length ) {
-                factory.toString().replace(rcomment, "").replace(rdeps, function (a, b) {
-                	deps.push( b );
-				});
-			}
-		}
-
-		deps = util.unique( deps );
-
-		if ( interactived ) {
-			script = currentlyAddingScript || util.getInteractiveScript();
-			if ( script ) {
-				ctx = util.toUri( util.getScriptAbsPath( script ) );
-			}
-		}
-
-		if ( ctx ) {
-			name = ( !name || name === ctx ) ? ctx : util.toUri( name, ctx );
-			defs = contexts[ctx] || ( contexts[ctx] = [] );
-			defs.push({
-				id: name,
-				deps: deps,
-				factory: factory
-			});
-		} else {
-			if ( name && util.isInline(name) ) {
-				name = util.toUri( name );
-				if ( dataUris[name] && dataUris[name].status !== DECLARED ) {
-					util.notify({
-						type: 'warn',
-						message: 'Couldn\'t override registered module ' + name
-					});
-				} else {
-					dataUris[name] = {
-						id: name,
-						deps: deps,
-						factory: factory,
-						type: 'js',
-						loader: false,
-						status: FETCHED
-					};
+		if ( isFunction(factory) && factory.length ) {
+			factory.toString().replace( rnoise, '' )
+			.replace(rdeps, function( a, b, c ) {
+				if ( c ) {
+					deps.push( c );
 				}
-			} else {
-				globalContext.push({
-					id: name,
-					deps: deps,
-					factory: factory
-				});
-			}
+			});
 		}
 
-		return undefined;
+		if ( !id && interactived ) {
+			script = currentlyAddingScript || getInteractiveScript();
+			if ( script && (id = script.getAttribute('data-module')) ) {
+				map = makeModuleMap( id, null, true );
+			}
+		} else if ( id ) {
+			map = makeModuleMap( id, null, true );
+		}
+
+		meta = {
+			deps: deps,
+			factory: factory
+		};
+
+		map ? KM.save( map, meta ) : pendingQueue.push( meta );
 	}
 
-	// Public require api
-	function require( uris, callback ) {
-		uris = !isArray( uris ) ? [String(uris)] : uris;
-
-		if ( isContextWait ) {
-			waitList.push({
-				uris: uris,
-				callback: callback
-			});
-
-			return undefined;
-		}
-
-		uris = util.parseUri( util.toUri(uris), 1 );
-
-		var main = uris.slice( 0, 1 ),
-			pkgs = uris.slice( 1 ),
-			handle = function() {
-				var args = [],
-					i = 0,
-					len = uris.length,
-					mod;
-
-				for ( ; i < len; i++ ) {
-					mod = declared[ uris[i].id ];
-					args.push( mod.exports );
-				}
-
-				if ( callback ) {
-					callback.apply( global, args );
-				}
-			};
-
-		util.fetch(main, function() {
-			if ( pkgs.length === 0 ) {
-				handle();
-			} else {
-				util.fetch( pkgs, handle );
-			}
-		});
-
-		return undefined;
-	}
-
-	// Module constructor
-	function Module( meta ) {
-		mixin( this, meta );
-		this.dependencies = this.dependencies || [];
-	}
-
-	// Helpers for handling path
-	mixin(util, {
-		getHost: function( url ) {
-			return url.replace( /^(\w+:\/\/[^/]*)\/?.*$/, '$1' );
-		},
-
-		getDir: function( url ) {
-			var m = url.match( /.*(?=\/.*$)/ );
-	   		return ( m ? m[0] : '.' ) + '/';
-		},
-
-		isXDomain: function( url ) {
-			if ( url.indexOf( '://' ) > 0 ) {
-				return false;
-			}
-
-			if ( util.getHost( url ) !== nowHost ) {
-				return true;
-			}
-
-			return false;
-		},
-
-		toAbs: function( path ) {
-			rslash.lastIndex = 0;
-
-			if ( rslash.test(path) ) {
-				path = path.replace( rslash, '$1\/' );
-			}
-
-			if ( path.indexOf( '.' ) === -1 ) {
-				return path;
-			}
-
-			var parts = path.split( '/' ),
-				ret = [],
-				part;
-
-			while ( parts.length ) {
-				part = parts.shift();
-				if ( part == ".." ) {
-					if ( ret.length === 0 ) {
-						util.notify({
-							type: 'error',
-							message: 'Invalid path: ' + path
-						});
-					}
-					ret.pop();
-				} else if ( part !== '.' ) {
-					ret.push( part );
-				}
-			}
-
-			return ret.join( '/' );
-		},
-
-		normalize: function( path ) {
-			path = util.toAbs( path );
-
-			if ( /#$/.test( path ) ) {
-				path = path.slice( 0, -1 );
-			} else if ( path.indexOf( '?' ) === -1 && !rext.test( path ) ) {
-				path = path + '.js';
-			}
-
-			if ( !isLocal && !util.isXDomain( path ) && path.indexOf('://') > 0 ) {
-				path = path.replace( nowHost, '' );
-			}
-
-			return path;
-		},
-
-		unique: function( deps ) {
-			var i = 0,
-				len = deps.length,
-				hash = {},
-				ret = [],
-				meta;
-
-			for ( ; i < len ; i++ ) {
-				meta = util.parseUri( deps[i] );
-
-				if ( !hash[meta.id] ) {
-					ret.push( deps[i] );
-					hash[ meta.id ] = 1;
-				}
-			}
-
-			return ret;
-		},
-
-		toUri: function( path, rel ) {
-			if ( isArray(path) ) {
-				var ret = [],
-					i = 0,
-					len = path.length;
-
-				for ( ; i < len; i++ ) {
-					ret.push( util.toUri(path[i], rel) );
-				}
-
-				return ret;
-			}
-
-			var src, hash;
-
-			if ( hashAlias[path] ) {
-				path = hashAlias[path];
-			}
-
-			// Skip absolute path and inline path
-			if ( path.indexOf('://') > 0 ||
-				path.indexOf('//') === 0 ||
-				path.indexOf('/') === 0 ||
-				util.isInline(path) ) {
-				src = path;
-			} else {
-				if ( path.indexOf('./') === 0 ) {
-					path = path.substring( 2 );
-				}
-				src = util.getDir(rel || nowDir) + path;
-			}
-
-			if ( (hash = hashURI[src]) ) {
-				return hash;
-			}
-
-			return ( hash = hashURI[src] = util.normalize(src), hash );
-		},
-
-		parseUri: function( path, ig ) {
-			if ( isArray(path) ) {
-				var ret = [],
-					i = 0,
-					len = path.length;
-
-				for ( ; i < len; i++ ) {
-					ret.push( util.parseUri(path[i], ig) );
-				}
-
-				return ret;
-			}
-
-			var lp = false,
-				match;
-
-			if ( !ig && (match = path.match(ruri)) ) {
-				lp = match[1];
-				path = match[2];
-			}
-
-			return {
-				id: path,
-				loader: !ig ? lp : false
-			};
-		},
-
-		isInline: function( uri ) {
-			return uri.indexOf( '~/' ) === 0;
-		},
-
-		getScriptAbsPath: function( node ) {
-			return node.hasAttribute ? node.src : node.getAttribute( 'src', 4 );
-		},
-
-		getInteractiveScript: function() {
-			if ( interactiveScript && interactiveScript.readyState === 'interactive' ) {
-				return interactiveScript;
-			}
-
-			var scripts = head.getElementsByTagName( 'script' ),
-				i = 0,
-				len = scripts.length,
-				script;
-
-			for ( i = 0; i < len; i++ ) {
-				script = scripts[ i ];
-				if ( script.readyState === 'interactive' ) {
-					interactiveScript = script;
-					return script;
-				}
-			}
-		}
-	});
-
-	nowHost = util.getHost( location.href );
-	nowDir = util.getDir( location.href );
-	isLocal = location.protocol === 'file:';
-
-	mixin(util, {
-		fetch: function( urisArray, callback ) {
-			var i = 0,
-				len = urisArray.length,
-				uris = [],
-				topics = [],
-				uri, cb, meta, count;
-
-			for ( ; i < len; i++ ) {
-				uri = urisArray[i];
-				!declared[uri.id] && uris.push( uri );
-			}
-
-			( i = 0, len = count = uris.length );
-
-			if ( len === 0 ) {
-				return callback() && undefined;
-			}
-
-			cb = util.callback( count, topics, callback );
-
-			while ( len ) {
-				len = len - 1;
-				uri = uris.shift();
-				topics.push( K.subscribe(uri.id, cb) );
-
-				if ( !declared[uri.id] ) {
-					meta = dataUris[uri.id];
-
-					if ( meta ) {
-						util.lookup( uri );
-						// TODO: move follwoing stuff to util.lookup.
-						/*if ( inline ) {
-							util.state( uri );
-						} else {
-							// Check if we can reload mofule if ti is error
-							// Other status just waiting for the publish event.
-							if ( meta.status === ERROR ) {
-								// Module is a loader
-								loader = meta.loader && dataUris[meta.loader];
-	
-								if ( meta.specified && meta.tried >= 3  ) {
-									K.publish( id, true );
-								} else if ( loader && loader.tried < 3 ) {
-									util.load( uri );
-								}
-							}
-						}*/
-					} else {
-						if ( util.isInline(uri.id) ) {
-							util.notify({
-								type: 'error',
-								message: 'Couldn\'t find inline module ' + uri.id
-							});
-						} else {
-							util.load( uri );
-						}
-					}
-				} else {
-					K.publish( uri.id );
-				}
-			}
-		},
-
-		callback: function( count, topics, process ) {
-			return function() {
-				if ( --count <= 0 ) {
-					while ( topics.length ) {
-						K.unsubscribe( topics.shift() );
-					}
-					process();
-				}
-			};
-		},
-
-		require: function( ctx ) {
-			return function( id ) {
-				var inline = util.isInline( ctx.id ),
-					rel = inline ? nowDir : ctx.id,
-					module = declared[ util.toUri(id, rel) ],
-					exports = module && module.exports || undefined;
-
-				if ( exports && typeof exports === 'object' ) {
-					return mixin( {}, exports );
-				}
-
-				return exports;
-			};
-		},
-
-		load: function( uri ) {
-			var id = uri.id,
-				loader = uri.loader,
-				specified = uri.specified,
-				meta = dataUris[id],
-				loaderMod;
-
-			if ( !meta ) {
-				meta = dataUris[id] = {
-					id: id,
-					loader: loader,
-					specified: specified,
-					status: START,
-					tried: 0
-				};
-			}
-
-			meta.tried = meta.tried + 1;
-			if ( loader ) {
-				loader = util.toUri( loader, scriptDir );
-				loaderMod = declared[loader];
-
-				if ( !loaderMod ) {
-					// Notifying moudle which depend on the loader
-					var topic = K.subscribe(loader, function( error ) {
-							K.unsubscribe( topic );
-							if ( error ) {
-								util.notify({
-									type: 'error',
-									message: 'Couldn\'t load ' + id + ', As failed to load  loader ' + loader
-								})
-							}
-						});
-
-					util.fetch([{
-						id: loader,
-						loader: false,
-						specified: 1
-					}], function() {
-						loaderMod = declared[loader];
-						if ( loaderMod ) {
-							meta.status = LOADING;
-							loaderMod.exports.load( uri, util.save );
-						}
-					});
-				} else {
-					meta.status = LOADING;
-					loader.exports.load( uri, util.save );
-				}
-			} else {
-				util._load( id );
-			}
-		},
-
-		_load: function( src ) {
-			var node = document.createElement( 'script' ),
-				ate = node.attachEvent;
-
-			node.type = "text/javascript";
-			node.charset = "utf-8";
-			node.async = true;
-
-			if ( ate && !(ate.toString &&
-				ate.toString().indexOf('[native code]') < 0 ) && !isOpera ) {
-				interactived = true;
-				node.attachEvent( "onreadystatechange", util.onLoad );
-			} else {
-				node.addEventListener( "load", util.onLoad, false );
-				node.addEventListener( "error", util.onLoad, false );
-			}
-
-			node.src = src;
-			currentlyAddingScript = node;
-
-			if ( baseElement ) {
-				head.insertBefore( node, baseElement );
-			} else {
-				head.appendChild( node );
-			}
-
-			currentlyAddingScript = null;
-
-			return node;
-		},
-
-		// If script load successfully or failed,
-		// inlne module('~/mod') nerver enter here.
-		save: function( uri ) {
-			var id = uri.id,
-				queue = util.getContextMeta( id ),
-				stack = queue.slice( 0 ),
-				meta = dataUris[id],
-				found,
-				ctx;
-
-			// Mark as loaded
-			meta.status = LOADED;
-
-			// Call define queue
-			while ( queue.length ) {
-				ctx = queue.shift();
-
-				if ( !ctx.id ) {
-					ctx.id = id;
-					if ( found ) {
-						break;
-					}
-					found = true;
-				} else if ( ctx.id === id ) {
-					found = true;
-				}
-
-				util._save( ctx );
-			}
-
-			if ( !found && !declared[id] && meta.status !== ERROR ) {
-				if ( config.definition === 'force' ) {
-					util._save( [id, [], config.shim || {}] );
-				} else {
-					meta.status = ERROR;
-					util.notify({
-						type: 'error',
-						message: 'No define call for \'' + id + '\''
-					});
-				}
-			}
-
-			while ( stack.length ) {
-				util.lookup( stack.shift() );
-			}
-		},
-
-		_save: function( ctx ) {
-			var id = ctx.id,
-				deps =  ctx.deps ? util.toUri( ctx.deps, id ) : ctx.deps,
-				factory = ctx.factory,
-				meta = dataUris[id];
-
-			// Moudle has a correspondent script
-			if ( meta ) {
-				if ( meta.status === FETCHED || meta.status === DECLARED ) {
-					util.notify({
-						type: 'warn',
-						message: 'Couldn\'t override registered module ' + id
-					});
-				} else {
-					if ( typeof factory === strundefined ) {
-						util.notify({
-							type: 'error',
-							message: 'Couldn\'t load  module ' + id
-						});
-					}
-
-					mixin(meta, {
-						deps: deps,
-						factory: factory,
-						status: FETCHED
-					});
-					// FIXME: reload faild module ?
-				}
-			} else {
-				dataUris[id] = {
-					id: id,
-					deps: deps,
-					factory: factory,
-					type: 'js',
-					loader: false,
-					status: FETCHED,
-					tried: 1
-				};
-			}
-		},
-
-		lookup: function( uri ) {
-			var id = uri.id,
-				meta = dataUris[id],
-				deps = meta.deps,
-				pendUris = [],
-				pendDeps;
-
-			if ( meta.status < FETCHED ) {
-				return undefined;
-			}
-
-			if ( meta.status === DECLARED ) {
-				return K.publish( id );
-			}
-
-			// FIXME: Whether need to deal other status here ?
-
-			if ( deps && deps.length ) {
-				pendDeps = util.resolveCyclicDependencies( meta );
-
-				if ( deps.length !== pendDeps.length ) {
-					util.notify({
-						type: 'warn',
-						message: 'Found cyclic denpendencies in ' + id
-					});
-				}
-			}
-
-			if ( pendDeps && pendDeps.length > 0 ) {
-				var realDeps = [],
-					rel = util.isInline( id ) ? null : id,
-					i = 0,
-					len = pendDeps.length,
-					it;
-
-				for ( ; i < len; i++ ) {
-					it = util.parseUri( pendDeps[i] );
-					it.id = util.toUri( it.id, rel );
-					realDeps.push( it );
-					pendUris.push( it.id );
-				}
-
-				pendDeps = realDeps;
-			}
-
-			if ( pendUris.length === 0 || util.isModulesReady(pendUris) ) {
-				meta.status = READY;
-				util.declare( uri );
-			} else {
-				util.fetch(pendDeps, function() {
-					meta.status = util.isModulesReady( pendUris ) ? READY : ERROR;
-					util.declare( uri );
-				});
-			}
-		},
-
-		// FIXME: resolve duplicate declare when load page at first time
-		// 1. code problem
-		// 2. proxy server
-		declare: function( uri ) {
-			var id = uri.id,
-				meta = dataUris[id],
-				module = declared[id];
-
-			if ( meta.status === ERROR ) {
-				return K.publish( id, true );
-			}
-
-			if ( module || meta.status < READY || meta.status === DECLARED ) {
-				return;
-			}
-
-			//debugger;
-			module = declared[id] = new Module({
-				id: id,
-				dependencies: meta.deps,
-				exports: {}
-			});
-			meta.status = DECLARED;
-
-			var factory = meta.factory,
-				require = util.require( module ),
-				exports = module.exports,
-				ret;
-
-			if ( isFunction( factory ) ) {
-				ret = factory.call( global, require, exports, module );
-				// FIXME: mod.exports = xxx or return xxx, which we should take ?
-				if ( typeof(ret) !== strundefined ) {
-					module.exports = ret;
-				}
-			} else {
-				module.exports = factory || {};
-			}
-
-			console && console.log(['declare', id]);
-			K.publish( id );
-		},
-
-		onLoad: function( e ) {
-			var node = e.currentTarget || e.srcElement,
-				uri;
-
-			if ( e.type === "load" || e.type === "error" ||
-				(node && /^(complete|loaded)$/.test(node.readyState)) ) {
-				interactiveScript = null;
-				uri = util.toUri( util.getScriptAbsPath(node) );
-				util.save( {id: uri} );
-
-				if ( node.detachEvent && !isOpera ) {
-					node.detachEvent( "onreadystatechange", util.onLoad );
-				} else {
-					node.removeEventListener( "load", util.onLoad, false );
-					node.removeEventListener( "error", util.onLoad, false );
-				}
-
-				node.parentNode.removeChild( node );
-			}
-		},
-
-		getContextMeta: function( id ) {
-			var queue = contexts[id] || [],
-				ctx;
-
-			while ( globalContext.length ) {
-				ctx = globalContext.shift();
-				ctx.id = ctx.id ? util.toUri( ctx.id, id ) : ctx.id;
-				queue.push( ctx );
-			}
-
-			return ( globalContext = [], queue );
-		},
-
-		isModulesReady: function( uris ) {
-			var i = 0,
-				len = uris.length;
-
-			for ( ; i < len; i++ ) {
-				if ( !declared[uris[i]] ) {
-					return false;
-				}
-			}
-
-			return true;
-		},
-
-		hasCyclicDependencies: function( meta, id ) {
-			if ( !meta || declared[meta.id] || meta.status === DECLARED ) {
-				return false;
-			}
-
-			var deps = meta.deps,
-				i = 0,
-				len = deps ? deps.length : 0;
-
-			if ( len ) {
-				if ( util.indexOf(deps, id) !== -1 ) {
-					return true;
-				} else {
-					for ( ; i < len; i++ ) {
-						if ( util.hasCyclicDependencies(dataUris[deps[i]], id) ) {
-							return true;
-						}
-					}
-
-					return false;
-				}
-			}
-
-			return false;
-		},
-
-		resolveCyclicDependencies: function( meta ) {
-			var ret = [],
-				id = meta.id,
-				deps = meta.deps,
-				i = 0,
-				len = deps.length;
-
-			for ( ; i < len; i++ ) {
-				if ( !util.hasCyclicDependencies(dataUris[deps[i]], id) ) {
-					ret.push( deps[i] );
-				}
-			}
-
-			return ret;
-		}
-	});
-
-	define.amd = {
+	define.cmd = define.amd = {
 		vendor: 'kjs'
 	};
 
-	require.toUrl = function( uri, rel ) {
-		return util.toUri( uri, rel );
-	};
+	function require( deps, callback ) {
+		pendingQueue = [];
+		deps = isArray(deps) ? deps : [deps];
 
-	// FIXME: handle duplicate/conflict alias
-	require.config = function( params ) {
-		var prop, ctx;
+		var i = deps.length;
+		while ( i-- ) {
+			deps[i] = makeModuleMap( deps[i] );
+		}
 
-		for ( prop in params ) {
-			if ( !(prop in empty) ) {
-				switch ( prop ) {
-					case 'alias':
-						for ( ctx in params[prop] ) {
-							if ( !(ctx in params[prop]) ) {
-								hashAlias[ctx] = params[prop][ctx];
-							}
-						}
-						break;
+		return KM.fetch(deps, function() {
+			if ( callback ) {
+				var args = [], i = -1, dep;
+
+				while ( (dep = deps[++i]) ) {
+					args[i] = defined[dep.id];
 				}
+
+				callback.apply( global, args );
+			}
+		});
+	}
+
+	require.version = version;
+
+	require.config = function( data ) {
+		var name, cfg, set, opt;
+
+		for ( name in data ) {
+			set = data[name];
+
+			switch ( name ) {
+				case 'vars':
+					for ( opt in set ) {
+						vars[opt] = set[opt];
+					}
+					break;
+				case 'map':
+					rules = rules.concat( set );
 			}
 		}
 	};
 
-	if ( global.define ) {
-		if ( global.define.amd && global.define.amd === 'kjs' ) {
-			return;
+	require.resolve = function( id, rel ) {
+		return makeModuleMap( id, rel ).id;
+	};
+
+	require.toUrl = function( id, rel ) {
+		return filename( makeModuleMap(id, rel).mid );
+	};
+
+	require.on = function ( cid, handler ) {
+		var handlers = connects[cid] || (connects[cid] = []);
+
+		handler.sid = handlers.push( handler ) - 1;
+
+		return {
+			remove: function() {
+				connects[cid].splice( handler.sid, 1 );
+			}
+		};
+	};
+
+	require.signal = signal = function( cid, args ) {
+		var handlers = connects[cid], handler;
+
+		if ( handlers ) {
+			handlers = handlers.slice(0);
+			while( (handler = handlers.shift()) ) {
+				handler( args );
+			}
 		}
-	} else {
-		global.define = define;
-		global.require = require;
-	}
+	};
+
+	// EXPOSE API
+	global.define = define;
+	global.require = global.kjs = require;
 
 	// Handle data-main
-	var kjsnode = document.getElementById( 'kjsnode' ),
-		scripts, dr;
 
+	kjsnode = document.getElementById('kjsnode');
 	if ( !kjsnode ) {
-		scripts = document.getElementsByTagName( 'script' );
-    	kjsnode = scripts[ scripts.length - 1 ];
+		scripts = document.getElementsByTagName('script');
+		kjsnode = scripts[ scripts.length - 1 ];
 	}
 
-	scriptDir = util.getDir( util.getScriptAbsPath(kjsnode) );
-	dataMain = kjsnode.getAttribute( 'data-main' ) || '';
-
-	if ( dataMain ) {
-		dataMain = dataMain.split( /\s*,\s*/ );
-		require( dataMain );
+	appMain = kjsnode.getAttribute('data-main');
+	if ( appMain ) {
+		appMain = appMain.split( /\s*,\s*/ );
+		push.apply( incomingQueue, appMain );
 	}
 
 	setTimeout(function() {
-		isContextWait = false;
-		while ( waitList.length ) {
-			dr = waitList.shift();
-			require( dr.uris, dr.callback );
+		if ( incomingQueue.length ) {
+			require( incomingQueue );
+			incomingQueue = [];
 		}
 	}, 0);
-
-	K.use = function( uri, callback ) {
-		require( uri, callback );
-	};
-
-	// Resolve conflict of namespace
-	K.resolve = function( deep ) {
-		if ( global.K === kjs ) {
-			global.K = _K;
-		}
-
-		if ( deep && global.kjs === kjs ) {
-			global.kjs = _kjs;
-		}
-
-		return kjs;
-	};
-
-	// Expose kjs
-	global.kjs = global.K = kjs;
-
-	// Debug stuffs
-	global.util = util;
-	global.globalContext = globalContext;
-	global.dataUris = dataUris;
-	global.declared = declared;
 })( this );
