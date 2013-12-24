@@ -1,5 +1,5 @@
 /*
- * KJS - A Light And Easy-To-Use Module Loader
+ * kjs - A Light And Easy-To-Use Module Loader
  * Copyright (C) 2013 aaron.xiao
  * Author: aaron.xiao <admin@veryos.com>
  * Version: @version@
@@ -10,45 +10,46 @@
 
 	var version = '@version@',
 
-		empty = {},
-		push = [].push,
 		toString = {}.toString,
 		strundef = typeof undefined,
 		isOpera = typeof opera !== strundef && opera.toString() === '[object Opera]',
+
+		rprotocol = /^[\w\+\.\-]+:\//,
+		rcomplete = navigator.platform === 'PLAYSTATION 3' ?
+			/^complete$/ : /^(complete|loaded)$/,
+		rdeps = /"(?:\\"|[^"])*"|'(?:\\'|[^'])*'|\/\*[\S\s]*?\*\/|\/(?:\\\/|[^\/\r\n])+\/(?=[^\/])|\/\/.*|\.\s*require|(?:^|[^$])\brequire\s*\(\s*(["'])(.+?)\1\s*\)/g,
 
 		interactived = false,
 		currentlyAddingScript,
 		interactiveScript,
 
-		rvars = /\{\{([^\{]+)\}\}/g,
-		rcomplete = navigator.platform === 'PLAYSTATION 3' ?
-			/^complete$/ : /^(complete|loaded)$/,
-		rnoise = /\\\/|\\\/\*|\[.*?(\/|\\\/|\/\*)+.*?\]/g,
-		rdeps = /"(?:\\"|[^"])*"|'(?:\\'|[^'])*'|\/\*[\S\s]*?\*\/|\/(?:\\\/|[^\/\r\n])+\/(?=[^\/])|\/\/.*|\.\s*require|(?:^|[^$])\brequire\s*\(\s*(["'])(.+?)\1\s*\)/g,
-
-		incomingQueue = [],
-		pendingQueue = [],
-
-		resolved = {},
+		pending = [],
 		registry = {},
+		activing = {},
 		defined = {},
+		resolved = {},
+		fetched = {},
+		memoried = {},
 
-		LOADING = 1,
-		LOADED = 2,
-		READY = 3,
-		ERROR = 4,
-
-		vars = {},
-		rules = [],
+		config = {
+			paths: {},
+			shim: {},
+			base: './',
+			timeout: 0
+		},
 		connects = {},
 
-		cwp = location.protocol,
+		uid = 1,
+		protocol = location.protocol,
+		prefix = protocol + '//' + location.host,
 		cwd = dir( location.pathname ),
-		prefix = host( location.href ),
-		splitIndex = prefix.length,
+		pos = prefix.length,
+		absBase = cwd,
 
-		baseElement, head, hasAttchEvent,
-		signal, kjsnode, kjsdir, appMain, scripts;
+		slice = Array.prototype.slice,
+		hasTimeout = typeof setTimeout !== strundef,
+
+		checking, nextTick, baseElement, head, hasAttch, signal;
 
 	// Helpers
 	function isFunction( it ) {
@@ -60,15 +61,26 @@
 	}
 
 	function mixin( dest, source ) {
-		var name, value;
-		for ( name in source ) {
-			value = source[name];
-			if ( !(name in dest) || (dest[name] !== value &&
-				(!(name in empty) || empty[name] !== value)) ) {
-				dest[name] = value;
-			}
+		for ( var name in source ) {
+			dest[name] = source[name];
 		}
 		return dest;
+	}
+
+	function getProp( dest, name ) {
+		if ( dest.hasOwnProperty(name) ) {
+			return dest[name];
+		}
+	}
+
+	function hitch( context, fn, data ) {
+		return function() {
+			var args = arguments;
+			if ( data ) {
+				args = slice.call( args ).concat( data );
+			}
+			return fn.apply( context, args );
+		};
 	}
 
 	// Path utils
@@ -99,6 +111,21 @@
 		return parts;
 	}
 
+	function trimArray( parts ) {
+		var start = 0, len = parts.length;
+		for ( ; start < len; start++ ) {
+			if ( parts[start] !== '' ) break;
+		}
+
+		var end = len - 1;
+		for ( ; end >= 0; end-- ) {
+			if ( parts[end] !== '' ) break;
+		}
+
+		if ( start > end ) return [];
+		return parts.slice( start, end + 1 );
+	}
+
 	function normalize( path ) {
 		var isAbsolute = path.charAt(0) === '/',
 			trailingSlash = path.substr(-1) === '/',
@@ -124,111 +151,190 @@
 		return (isAbsolute ? '/' : '') + path;
 	}
 
-	function dir( uri ) {
-		var m = uri.match( /.*(?=\/.*$)/ );
-		return ( m ? m[0] : '.' ) + '/';
-	}
+	function relative( from, to ) {
+		to = normalize( to );
 
-	function host( uri ) {
-		var m = uri.match( /^(\w+:\/\/[^\/]*)\/?.*$/ );
-		return m && m[1] ? m[1] : '';
-	}
+		var fromParts = trimArray( from.split('/') );
+		var toParts = trimArray( to.split('/') );
 
-	function filename( id ) {
-		id = id.indexOf(':/') === -1 ? prefix + id : id;
-		return (id.slice(-3) === '.js' || id.indexOf('?') > -1 || id.slice(-1) === '/') ? id : id + '.js';
-	}
-
-	function resolve( path, rel, normalized ) {
-		var part, parts;
-
-		if ( path in resolved ) {
-			return path;
-		}
-
-		// Replace registered varaibles '{{var}}'
-		if ( path.indexOf('{{') > -1 ) {
-			path = path.replace(rvars, function( a, b ) {
-				return vars[b];
-			});
-		}
-
-		if ( path.indexOf('//') === 0 ) {
-			path = cwp + path;
-			if ( path.indexOf(prefix) === 0 ) {
-				path = path.substring( splitIndex );
+		var length = Math.min( fromParts.length, toParts.length );
+		var samePartsLength = length;
+		for ( var i = 0; i < length; i++ ) {
+			if ( fromParts[i] !== toParts[i] ) {
+				samePartsLength = i;
+				break;
 			}
-		} else if ( path.indexOf(':/') > -1 ) {
-			if ( path.indexOf(prefix) === 0 ) {
-				path = path.substring( splitIndex );
+		}
+
+		var outputParts = [];
+		for ( var i = samePartsLength; i < fromParts.length; i++ ) {
+			outputParts.push( '..' );
+		}
+
+		outputParts = outputParts.concat( toParts.slice(samePartsLength) );
+
+		return outputParts.join('/');
+	}
+
+	function relativeBase( path ) {
+		var i = path.lastIndexOf('/') + 1,
+			name = '';
+
+		if ( i > -1 ) {
+			name = path.substring(i);
+			path = path.substring(0, i);
+		}
+
+		path = relative( absBase, path );
+
+		return (path ? path + '/' : path) + name;
+	}
+
+	function dir( path ) {
+		var parts = path.split('/');
+		parts.pop();
+		return (parts.length ? parts.join('/') : '.') + '/';
+	}
+
+	function filename( name, skipExt ) {
+		var parts = name.split('/'),
+			paths = config.paths,
+			i = parts.length,
+			part, val;
+
+		// Replace registered path
+		if ( paths ) {
+			for ( ; i > 0; i-- ) {
+				part = parts.slice(0, i).join('/');
+				if ( (val = getProp(paths, part)) ) {
+					if ( isArray(val) ) {
+						val = val[0];
+					}
+					parts.splice( 0, i, val );
+					break;
+				}
+			}
+			name = parts.join('/');
+		}
+
+		// Add base for relative path
+		if ( !rprotocol.test(name) ) {
+			name = config.base + name;
+		}
+
+		// Add extension
+		name = (skipExt || name.slice(-3) === '.js' || name.indexOf('?') > -1 || name.slice(-1) === '/') ? name : name + '.js';
+
+		return name;
+	}
+
+	function resolve( name, baseName ) {
+		var maps, i, parts, part, val, isRelative;
+
+		if ( name.indexOf('//') === 0 ) {
+			name = protocol + name;
+			if ( name.indexOf(prefix) === 0 ) {
+				name = relativeBase( name.substring(pos) );
+				isRelative = true;
+			}
+		} else if ( name.indexOf('://') > -1 ) {
+			if ( name.indexOf(prefix) === 0 ) {
+				name = relativeBase( name.substring(pos) );
+				isRelative = true;
 			}
 		} else {
-			part = path.charAt(0);
+			part = name.charAt(0);
+			isRelative = true;
 
 			if ( part === '/' ) {
-				path = normalized ? path : normalize( path );
-			} else {
-				if ( normalized ) {
-					path = rel ? normalize( rel + path ) : path;
-				} else {
-					path = normalize( (rel || cwd) + path );
+				name = relativeBase( name );
+			} else if ( part === '.' ) {
+				if ( baseName ) {
+					name = normalize( baseName + name );
+				} else if ( name.indexOf('./') === 0 ) {
+					name = name.substring(2);
 				}
 			}
 		}
 
 		// Apply map rules
-		path = rules.length ? mapped( path ) : path;
-		resolved[path] = 1;
-
-		return path;
-	}
-
-	function mapped( path ) {
-		var i = -1, val = path, rule;
-
-		while ( (rule = rules[++i]) ) {
-			path = isFunction(rule) ?
-				( rule(val) || val ) : val.replace( rule[0], rule[1] );
-
-			if ( path !== val ) {
-				break;
+		if ( isRelative && maps ) {
+			maps = config.map;
+			parts = name.split('/');
+			for ( i =  parts.length; i > 0; i-- ) {
+				part = parts.slice(0, i).join('/');
+				if ( (val = getProp(maps, part)) ) {
+					parts.splice( 0, i, val );
+					break;
+				}
 			}
+			name = parts.join('/');
 		}
 
-		return path;
+		return name;
 	}
 
-	function makeModuleMap( id, rel, normalized ) {
-		var mid, pid, i;
+	function makeModuleMap( id, rel, fixed ) {
+		var inner = false,
+			map, moduleName, pluginName, i, name;
+
+		if ( !id ) {
+			id = '_m>*>@_' + uid++;
+			inner = true;
+		}
+
+		if ( resolved.hasOwnProperty(id) ) {
+			return resolved[id];
+		}
 
 		if ( (i = id.indexOf('!')) > 0 ) {
-			mid = resolve( id.substr(i + 1), rel, normalized );
-			pid = resolve( id.substr(0, i), rel, normalized );
+			moduleName = id.substring( i + 1 );
+			pluginName = id.substring( 0, i );
+			if ( !fixed ) {
+				moduleName = resolve( moduleName, rel );
+				pluginName = resolve( pluginName, rel );
+			}
+			id = pluginName + '!' + moduleName;
 		} else {
-			mid = resolve( id, rel, normalized );
+			id = moduleName = fixed ? id : resolve( id, rel );
 		}
 
-		return {
-			id: pid ? pid + '!' + mid : mid,
-			mid: mid,
-			pid: pid
+		if ( resolved.hasOwnProperty(id) ) {
+			return resolved[id];
+		}
+
+		name = filename( moduleName, !!pluginName );
+		i = moduleName.lastIndexOf('/') + 1;
+
+		map = resolved[id] = {
+			id: id,
+			inner: inner,
+			moduleName: moduleName,
+			pluginName: pluginName,
+			parentName: moduleName.substring( 0, i ),
+			filename: name
 		};
+
+		return map;
 	}
 
 	head = document.getElementsByTagName('head')[0];
-	hasAttchEvent = head.attachEvent && !(head.attachEvent.toString &&
+	hasAttch = head.attachEvent && !(head.attachEvent.toString &&
 		head.attachEvent.toString().indexOf('[native code]') === -1);
     baseElement = document.getElementsByTagName('base')[0];
     head = baseElement ? baseElement.parentNode : head;
+
+    nextTick = hasTimeout ? function(fn) {
+        setTimeout( fn, 4 );
+    } : function(fn) { fn(); };
 
 	function getInteractiveScript() {
 		if ( interactiveScript && interactiveScript.readyState === 'interactive' ) {
 			return interactiveScript;
 		}
 
-		var i = -1, script;
-
-		scripts = head.getElementsByTagName('script');
+		var scripts = head.getElementsByTagName('script'),
+			i = -1, script;
 
 		while ( (script = scripts[++i]) ) {
 			if ( script.readyState === 'interactive' ) {
@@ -240,14 +346,28 @@
 	}
 
 	function loadScript( map ) {
-		var node = document.createElement('script');
+		if ( fetched[map.filename] ) {
+			return;
+		}
+
+		fetched[map.filename] = true;
+
+		var node = document.createElement('script'),
+			timeout = config.timeout, tid;
 
 		node.type = 'text/javascript';
 		node.charset = 'utf-8';
 		node.async = true;
 		node.setAttribute( 'data-module', map.id );
 
-		if ( hasAttchEvent && !isOpera ) {
+		if ( hasTimeout && timeout ) {
+			tid = setTimeout(function() {
+				onScriptTimeout( map, node );
+			}, timeout);
+			node.setAttribute( 'data-timer', tid );
+		}
+
+		if ( hasAttch && !isOpera ) {
 			interactived = true;
 			node.attachEvent( 'onreadystatechange', onScriptLoad );
 		} else {
@@ -255,15 +375,17 @@
 			node.addEventListener( 'error', onScriptError, false );
 		}
 
-		node.src = filename( map.mid );
+		node.src = map.filename;
+		signal( 'loading', map.id );
 		currentlyAddingScript = node;
+
 		if ( baseElement ) {
 			head.insertBefore( node, baseElement );
 		} else {
 			head.appendChild( node );
 		}
-		currentlyAddingScript = null;
 
+		currentlyAddingScript = null;
 		return node;
 	}
 
@@ -272,25 +394,39 @@
 
 		if ( e.type === 'load' || (node && rcomplete.test(node.readyState)) ) {
 			interactiveScript = null;
-			KM.onload( node.getAttribute('data-module') );
 			removeListener( node );
+			metaLoad( makeModuleMap(node.getAttribute('data-module'), null, true) );
 		}
 	}
 
 	function onScriptError( e ) {
 		var node = e.currentTarget || e.srcElement,
-			info = {
-				id: node.getAttribute('data-module'),
-				message: 'Script error'
-			};
+			id = node.getAttribute('data-module');
 
 		removeListener( node );
+		if ( !fallback(id) ) {
+			return onError({
+				id: id,
+				message: 'Script error'
+			});
+		}
+	}
 
-		signal( 'error', info )
-		return onError( info );
+	function onScriptTimeout( map, node ) {
+		node && removeListener( node );
+		if ( !fallback(map.id) ) {
+			return onError({
+				id: map.id,
+				message: 'Load timeout'
+			});
+		}
 	}
 
 	function removeListener( node ) {
+		var tid = node.getAttribute('data-timer');
+
+		tid && clearTimeout( +tid );
+
 		if ( node.detachEvent && !isOpera ) {
 			node.detachEvent( 'onreadystatechange', onScriptLoad );
 		} else {
@@ -298,339 +434,471 @@
 			node.removeEventListener( 'error', onScriptError, false );
 		}
 
-		node.parentNode.removeChild( node );
+		node.parentNode && node.parentNode.removeChild( node );
 	}
 
-	function onError( data ) {
-		throw data;
+	function onError( info ) {
+		var id = info.id,
+			mod = getProp( registry, id ),
+			done, msg;
+
+		if ( mod ) {
+			mod.error = info;
+			if ( mod.events.error ) {
+				done = true;
+				mod.signal( 'error', info );
+			}
+		}
+
+		signal( 'error', info );
+
+		if ( !done ) {
+			msg = '\n>>> modules: ' + id + '\n' +
+			'>>> message: ' + info.message;
+			throw new Error( msg );
+		}
+	}
+
+	function runMain() {
+		var kjsnode = document.getElementById('kjsnode'),
+			scripts, appMain;
+
+		if ( !kjsnode ) {
+			scripts = document.getElementsByTagName('script');
+			kjsnode = scripts[ scripts.length - 1 ];
+		}
+
+		if ( (appMain = kjsnode.getAttribute('data-main')) ) {
+			require( [appMain] );
+		}
 	}
 
 	function syncRequire( rel ) {
-		rel = dir( rel );
-
 		function req( id ) {
-			return defined[ makeModuleMap( id, rel, true ).id ];
+			return defined[ makeModuleMap(id, rel).id ];
 		}
 
 		req.toUrl = function( id ) {
-			id = makeModuleMap( id, rel, true ).id;
-			return normalize( id );
+			return makeModuleMap(id, rel).filename;
 		};
 
 		req.resolve = function( id, ref ) {
-			return makeModuleMap( id, rel, true ).id;
+			return makeModuleMap( id, rel ).id;
 		};
 
 		return req;
 	}
 
 	function KM( map ) {
-		this.id = map.id;
 		this.map = map;
-		this.dependencies = [];
-		this.status = 0;
-		this._chain = {};
-		this._users = [];
-		this._events = {};
+		this.deps = [];
+		this.defined = [];
+		this.isDef = [];
+		this.remain = 0;
+		this.events = getProp(memoried, map.id) || {};
+		this.shim = getProp(config.shim, map.id);
 	}
 
 	KM.prototype = {
 		on: function( name, handler ) {
-			var handlers = this._events[name] || (this._events[name] = []);
+			var handlers = this.events[name] || (this.events[name] = []);
 			handlers.push( handler );
 		},
 
 		signal: function( name, e ) {
-			var handlers = this._events[name];
+			var handlers = this.events[name],
+				i = -1, handler;
 
 			if ( handlers ) {
-				while ( handlers.length ) {
-					handlers.shift().call( this, e );
+				while ( (handler = handlers[++i]) ) {
+					handler( e );
 				}
-				delete this._events[name];
+				if ( name === 'error' ) {
+					delete this.events[name];
+				}
 			}
 		},
 
-		init: function( deps, factory, check ) {
-			if ( this.status > LOADING ) {
+		init: function( deps, factory, onError, options ) {
+			if ( this._inited ) {
 				return;
 			}
 
-			this.status = LOADED;
+			options = options || {};
+			this.factory = factory;
 
-			if ( deps ) {
-				var rel = dir( this.map.mid ),
-					dependencies = this.dependencies,
-					hash = {}, i = -1, mid;
+			if ( onError ) {
+				this.on( 'error', onError );
+			}
 
-				while ( (mid = deps[++i]) ) {
-					if ( !hash[mid] ) {
-						hash[mid] = true;
-						dependencies.push( makeModuleMap(mid, rel, true) );
+			this.deps = deps && deps.slice(0) || [];
+			this.onError = onError;
+
+			this._inited = true;
+
+			if ( options.setup || this._setup ) {
+				this.setup();
+			} else {
+				this.lookup();
+			}
+		},
+
+		setup: function() {
+			activing[this.map.id] = this;
+			this._setup = true;
+
+			this._setuping = true;
+
+			var map = this.map,
+				deps = this.deps,
+				rel = !map.inner && map.parentName,
+				errback = this.onError, mid, mod;
+
+			for ( var i = 0, c = deps.length; i < c; i++ ) {
+				if ( typeof (map = deps[i]) === 'string' ) {
+					map = deps[i] = makeModuleMap( deps[i], rel );
+					mid = map.id;
+					mod = getProp( registry, mid );
+					this.remain += 1;
+
+					if ( defined.hasOwnProperty(mid) &&
+						(!mod || mod._signalComplete) ) {
+						this.done( i , defined[mid] );
+					} else {
+						mod = getModule( map );
+						if ( mod.error && errback ) {
+							errback( mod.error );
+						} else {
+							mod.on('defined', hitch(this, function( api, i ) {
+								this.done( i , api );
+								this.lookup();
+							}, [i]));
+							if ( errback ) {
+								mod.on('error', function( err ) {
+									errback( err );
+								});
+							}
+						}
 					}
 				}
-			}
 
-			this.factory = factory;
-			this._remain = this.dependencies.length;
-			signal( 'save', this.id );
-
-			if ( check ) {
-				if ( this._remain === 0 ) {
-					return this.declare();
+				if ( (mod = getProp( registry, mid )) && !mod._setup ) {
+					mod.setup();
 				}
-				this.check();
 			}
+
+			this._setuping = false;
+
+			this.lookup();
+		},
+
+		lookup: function() {
+			// No need to lookup inactive module
+			if ( !this._setup || this._setuping ) {
+				return;
+			}
+
+			// Module meta not loaded, try to load it
+			if ( !this._inited ) {
+				this.fetch();
+			}
+			// Factory executed, eeror occures
+			else if ( this.error ) {
+				this.signal( 'error', this.error );
+			}
+			// Lookup its dependencies
+			else if ( !this._defining ) {
+				this._defining = true;
+
+				if ( this.remain === 0 && !this._defined ) {
+					var map = this.map,
+						id = map.id,
+						inner = map.inner,
+						factory = this.factory,
+						args = this.defined,
+						mod = {
+							id: id,
+							filename: filename
+						},
+						exports, ret, err, name, modified;
+
+					if ( isFunction(factory) ) {
+						if ( inner ) {
+							exports = factory.apply( global, args );
+						} else {
+							exports = mod.exports = {};
+
+							try {
+								ret = factory( syncRequire(map.parentName), exports, mod );
+							} catch (e) {
+								err = {
+									id: id,
+									message: e.message
+								};
+							}
+
+							if ( typeof ret !== strundef ) {
+								for ( name in exports ) {
+									if ( exports.hasOwnProperty(name) ) {
+										modified = true;
+										break;
+									}
+								}
+
+								if ( !modified ) {
+									exports = exports === mod.exports ? ret : module.exports;
+								}
+							}
+						}
+
+						if ( err ) {
+							this.error = err;
+							return onError( err );
+						}
+					} else {
+						exports = factory;
+					}
+
+					this.exports = mod.exports = exports;
+
+					if ( !inner ) {
+						defined[id] = exports;
+					}
+
+					delete registry[id];
+					delete activing[id];
+
+					this._defined = true;
+				}
+
+				this._defining = false;
+
+				if ( this._defined && !this._signal ) {
+					this._signal = true;
+					this.signal( 'defined', this.exports );
+					this._signalComplete = true;
+					signal( 'defined', id );
+				}
+			}
+		},
+
+		done: function( i, api ) {
+			if ( !this.isDef[i] ) {
+				this.isDef[i] = true;
+				this.remain -= 1;
+				this.defined[i] = api;
+			}
+		},
+
+		fetch: function() {
+			if ( this._fetched ) {
+				return;
+			}
+
+			this._fetched = true;
+
+			return this.shim ?
+				require( this.shim.deps || [], hitch(this, this.load) ) :
+				this.load();
 		},
 
 		load: function() {
 			var map = this.map,
-				id = map.id,
-				rid = map.mid,
-				pid = map.pid,
-				status, plugin, info;
+				url = map.filename,
+				mod, id, done, tid;
 
-			this.status = LOADING;
-			signal( 'load', this.id );
-
-			if ( pid ) {
-				if ( (plugin = defined[pid]) ) {
-					if ( plugin.load ) {
-						plugin.load(rid, function( factory ) {
-							KM.save( map, {factory: factory}, true );
-						});
-					} else {
-						info = {
-							id: pid,
-							message: 'Plugin "' + pid + '" did not implement "load" method'
-						};
-						signal( 'error', info );
-						return onError( info );
-					}
-				} else {
-					plugin = KM.get( makeModuleMap(pid, null, true) );
-					status = plugin.status;
-
-					plugin.on('ready', function() {
-						if ( (plugin = defined[pid]) ) {
-							if ( plugin.load ) {
-								plugin.load(rid, function( factory ) {
-									KM.save( map, {factory: factory}, true );
-								});
-							} else {
-								info = {
-									id: pid,
-									message: 'Plugin "' + pid + '" did not implement "load" method'
-								};
-								signal( 'error', info );
-								return onError( info );
-							}
+			if ( (id = map.pluginName) ) {
+				done = function( mod ) {
+					if ( mod.load ) {
+						if ( hasTimeout && config.timeout ) {
+							tid = setTimeout(function() {
+								mod.abort( url );
+								onScriptTimeout( map );
+							}, config.timeout);
 						}
-					});
-
-					if ( status < LOADING ) {
-						plugin.load();
-					} else if ( status === LOADED ) {
-						plugin.check();
+						signal( 'loading', map.id );
+						mod.load(url, function( meta ) {
+							clearTimeout( tid );
+							saveMeta( map, meta );
+						});
+					}
+				};
+				mod = getProp( registry, id );
+				if ( defined.hasOwnProperty(id) && (!mod || mod._signalComplete) ) {
+					done( defined[id] );
+				} else {
+					mod = getModule( makeModuleMap(id) );
+					mod.on( 'defined', done );
+					if ( !mod._setup ) {
+						mod.setup();
 					}
 				}
 			} else {
 				loadScript( map );
 			}
-		},
-
-		// Check if dependencies are ready
-		check: function() {
-			var id = this.id,
-				deps = this.dependencies,
-				chain = this._chain,
-				status = this.status,
-				unready = [],
-				i = -1,
-				remain = 0,
-				map, mod, did, dchain;
-
-			if ( status !== LOADED ) {
-				if ( status < LOADING ) {
-					this.load();
-				}
-
-				return;
-			}
-
-			while ( (map = deps[++i]) ) {
-				did = map.id;
-
-				if ( did in defined ) {
-					this._remain--;
-				} else {
-					mod = KM.get( map );
-					status = mod.status;
-
-					if ( status < READY ) {
-						mod._users[id] = (mod._users[id] || 0) + 1;
-
-						if ( status === LOADED ) {
-							if ( did in chain ) {
-								this._remain--;
-								signal( 'circular', [id, did] );
-							} else {
-								mod._chain[id] = true;
-								mixin( mod._chain, chain );
-								mod.check();
-							}
-						} else if ( status < LOADING ) {
-							mod.load();
-						}
-					}
-				}
-			}
-
-			if ( this._remain === 0 ) {
-				return this.declare();
-			}
-		},
-
-		declare: function() {
-			var id = this.id,
-				users = this._users,
-				factory = this.factory,
-				exports = this.exports,
-				returned, name, info;
-
-			if ( isFunction(factory) ) {
-				try {
-					returned = this.exports = {};
-					exports = factory( syncRequire(id), this.exports, this );
-
-					// Set exports via 'exports.attr=sth'
-					if ( returned === this.exports ) {
-						for ( name in returned ) {
-							if ( returned.hasOwnProperty(name) ) {
-								exports = returned;
-								break;
-							}
-						}
-					}
-					// Set exports via 'module.exports=sth'
-					else if ( typeof this.exports !== strundef ) {
-						exports = this.exports;
-					}
-				} catch( e ) {
-					info = {
-						id: id,
-						message: e.message
-					};
-					this.status = ERROR;
-					this.postEnd();
-					signal( 'error', info );
-					return onError( info );
-				}
-			} else {
-				exports = factory;
-			}
-
-			// Signal it's ready to use
-			this.status = READY;
-			this.exports = defined[id] = exports;
-			this.postEnd();
-			signal( 'ready', id );
-		},
-
-		postEnd: function() {
-			var users = this._users, mid, mod;
-
-			this.signal( 'ready', this.id );
-
-			for ( mid in users ) {
-				if ( users.hasOwnProperty(mid) ) {
-					mod = registry[mid];
-					mod._remain -= users[mid];
-					if ( mod._remain === 0 ) {
-						mod.declare();
-					}
-				}
-			}
-
-			delete this._chain;
-			delete this._users;
-			delete this._remain;
-			delete this.factory;
-			delete registry[this.id];
 		}
 	};
 
-	// Fetch multiple modules
-	KM.fetch = function( uris, onComplete ) {
-		var i = -1,
-			remain = uris.length,
-			map, mod, status;
+	function breakCycle( mod, traced, processed ) {
+		var id = mod.map.id,
+			deps = mod.deps,
+			i = -1, map, mid, dep;
 
-		while ( (map = uris[++i]) ) {
-			if ( !(map.id in defined) ) {
-				KM.get( map ).on( 'ready', onExecute );
-			} else {
-				remain--;
-			}
-		}
-
-		if ( remain === 0 ) {
-			return onComplete();
-		}
-
-		i = -1;
-
-		while ( (map = uris[++i]) ) {
-			if ( !(map.id in defined) ) {
-				registry[map.id].check();
-			}
-		}
-
-		function onExecute() {
-			if ( --remain === 0 ) {
-				onComplete();
-			}
-		}
-	};
-
-	// A script was loaded
-	KM.onload = function( id ) {
-		var meta, mod;
-
-		if ( (meta = pendingQueue.shift()) ) {
-			pendingQueue = [];
-			KM.save( makeModuleMap(id, null, true), meta, true );
-		}
-
-		// Not a cmd module
-		if ( !(id in defined) && (mod = registry[id]) && mod.status < LOADED ) {
-			signal( 'error', mod.map.mid );
-			return onError({
-				id: mod.map.mid,
-				message: 'No define call'
-			});
-		}
-	};
-
-	KM.get = function( map ) {
-		var id = map.id;
-
-		if ( registry[id] ) {
-			return registry[id];
+		if ( mod.error ) {
+			mod.signal( 'error', mod.error );
 		} else {
-			return ( registry[id] = new KM(map) );
-		}
-	};
+			traced[id] = true;
+			while ( (map = deps[++i]) ) {
+				mid = map.id;
+				dep = getProp( registry, mid );
 
-	KM.save = function( map, meta, check ) {
-		// Do not touch a defined module
-		if ( !(map.id in defined) ) {
-			KM.get( map ).init( meta.deps, meta.factory, check );
+				if ( dep && !dep.isDef[i] && !processed[mid] ) {
+					if ( traced[mid] ) {
+						mod.done( i, defined[mid] );
+						mod.lookup();
+						signal( 'cycle', [id, mid] );
+					} else {
+						breakCycle( dep, traced, processed );
+					}
+				}
+			}
+			processed[id] = true;
 		}
-	};
+	}
+
+	function undef( id ) {
+		var mod = getProp( registry, id ),
+			map = makeModuleMap( id, null, true );
+
+		pending = [];
+		delete defined[id];
+		delete fetched[map.filename];
+		delete resolved[id];
+
+		if ( mod ) {
+			if ( mod.events.defined ) {
+				memoried[id] = mod.events;
+			}
+
+			delete registry[id];
+			delete activing[id];
+		}
+	}
+
+	function fallback( id ) {
+		var data = getProp( config.paths, id );
+
+		if ( data && isArray(data) && data.length > 1 ) {
+			data.shift();
+			undef( id );
+			getModule(makeModuleMap( id, null, true )).setup();
+			return true;
+		}
+	}
+
+	function lookup() {
+		if ( checking ) {
+			return;
+		}
+
+		checking = true;
+
+		var requested = [],
+			docheck = true,
+			i = -1, id, map, mod;
+
+		for ( id in activing ) {
+			if ( (mod = getProp(activing, id)) ) {
+				map = mod.map;
+				if ( map.inner ) {
+					requested.push( mod );
+				} else if ( !mod.error && !mod._inited && mod._fetched ) {
+					if ( !map.pluginName ) {
+						docheck = false;
+					}
+				}
+			}
+		}
+
+		if ( docheck ) {
+			while ( (mod = requested[++i]) ) {
+				breakCycle( mod, {}, {} );
+			}
+		}
+
+		checking = false;
+	}
+
+	function saveMeta( map, meta ) {
+		if ( !defined.hasOwnProperty(map.id) ) {
+			signal( 'load', map.id );
+			getModule( map ).init( meta.deps, meta.factory );
+		}
+	}
+
+	function metaLoad( map ) {
+		var id = map.id,
+			shim = getProp( config.shim, id ) || {},
+			shimName = shim.exports,
+			meta, mod;
+
+		if ( (meta = pending.shift()) ) {
+			pending = [];
+			saveMeta( map, meta );
+		}
+
+		// Not a cmd/amd or It's a regular script
+		if ( !defined.hasOwnProperty(id) && (mod = registry[id]) && !mod._inited ) {
+			if ( !shimName || !getShim(shimName) ) {
+				if ( !fallback(id) ) {
+					return onError({
+						id: id,
+						message: 'No define call'
+					});
+				}
+			} else {
+				saveMeta( map, {deps: shim.deps, factory: shim.initExport} );
+			}
+		}
+
+		lookup();
+	}
+
+	function makeShim( data ) {
+		return function() {
+			var result;
+			if ( data.init ) {
+				result = data.init.apply( global, arguments );
+			}
+			return result || (data.exports && getShim(data.exports));
+		};
+	}
+
+	function getShim( name ) {
+		if ( !name ) {
+			return name;
+		}
+
+		var a = name.split('.'),
+			g = global, i;
+
+		while ( (i = a.shift()) ) {
+			if ( !(g = g[i]) ) {
+				return false;
+			}
+		}
+
+		return g;
+	}
+
+	function getModule( map ) {
+		var id = map.id,
+			mod = getProp( registry, id );
+		return mod ? mod : (registry[id] = new KM(map));
+	}
 
 	function define( id, deps, factory ) {
-		var meta, script, map;
+		var meta, script;
 
 		if ( typeof id !== 'string' ) {
 			factory = deps;
@@ -641,24 +909,21 @@
 		if ( !isArray(deps) ) {
 			factory = deps;
 			deps = [];
-		}
 
-		if ( isFunction(factory) && factory.length ) {
-			factory.toString().replace( rnoise, '' )
-			.replace(rdeps, function( a, b, c ) {
-				if ( c ) {
-					deps.push( c );
-				}
-			});
+			if ( isFunction(factory) && factory.length ) {
+				factory.toString().replace(rdeps, function( a, b, c ) {
+					if ( c ) {
+						deps.push( c );
+					}
+				});
+			}
 		}
 
 		if ( !id && interactived ) {
 			script = currentlyAddingScript || getInteractiveScript();
-			if ( script && (id = script.getAttribute('data-module')) ) {
-				map = makeModuleMap( id, null, true );
+			if ( script ) {
+				id = script.getAttribute('data-module');
 			}
-		} else if ( id ) {
-			map = makeModuleMap( id, null, true );
 		}
 
 		meta = {
@@ -666,51 +931,63 @@
 			factory: factory
 		};
 
-		map ? KM.save( map, meta ) : pendingQueue.push( meta );
+		id ? saveMeta(makeModuleMap(id, null, true), meta) : pending.push(meta);
 	}
 
 	define.cmd = define.amd = {
 		vendor: 'kjs'
 	};
 
-	function require( deps, callback ) {
-		pendingQueue = [];
+	function require( deps, onSuccess, onError ) {
 		deps = isArray(deps) ? deps : [deps];
+		pending = [];
 
-		var i = deps.length;
-		while ( i-- ) {
-			deps[i] = makeModuleMap( deps[i] );
-		}
-
-		return KM.fetch(deps, function() {
-			if ( callback ) {
-				var args = [], i = -1, dep;
-
-				while ( (dep = deps[++i]) ) {
-					args[i] = defined[dep.id];
-				}
-
-				callback.apply( global, args );
-			}
+		return nextTick(function() {
+			var mod = getModule( makeModuleMap() );
+			pending = [];
+			mod.init( deps, onSuccess, onError, {setup: true} );
+			lookup();
 		});
 	}
 
 	require.version = version;
 
 	require.config = function( data ) {
-		var name, cfg, set, opt;
+		var name, cfg, set, opt, shim;
 
 		for ( name in data ) {
 			set = data[name];
 
 			switch ( name ) {
-				case 'vars':
-					for ( opt in set ) {
-						vars[opt] = set[opt];
+				case 'base':
+					if ( set ) {
+						config.base = normalize( set );
+						absBase = resolve( config.base, cwd );
 					}
 					break;
+				case 'timeout':
+					config.timeout = set < 0 ? 0 : set * 1000;
+					break;
+				case 'paths':
 				case 'map':
-					rules = rules.concat( set );
+					if ( !config[name] ) {
+						config[name] = {};
+					}
+					mixin( config[name], set );
+				case 'shim':
+					if ( !config[name] ) {
+						config[name] = {};
+					}
+					shim = config[name];
+					for ( opt in set ) {
+						if ( set.hasOwnProperty(opt) ) {
+							cfg = set[opt];
+							if ( (cfg.exports || cfg.init) && !cfg.initExport ) {
+								cfg.initExport = makeShim( cfg );
+							}
+							shim[opt] = cfg;
+						}
+					}
 			}
 		}
 	};
@@ -720,14 +997,12 @@
 	};
 
 	require.toUrl = function( id, rel ) {
-		return filename( makeModuleMap(id, rel).mid );
+		return makeModuleMap( id, rel ).filename;
 	};
 
 	require.on = function ( cid, handler ) {
 		var handlers = connects[cid] || (connects[cid] = []);
-
 		handler.sid = handlers.push( handler ) - 1;
-
 		return {
 			remove: function() {
 				connects[cid].splice( handler.sid, 1 );
@@ -735,39 +1010,23 @@
 		};
 	};
 
-	require.signal = signal = function( cid, args ) {
-		var handlers = connects[cid], handler;
+	signal = function( cid, args ) {
+		var handlers = connects[cid],
+			i = -1, handler;
 
 		if ( handlers ) {
 			handlers = handlers.slice(0);
-			while( (handler = handlers.shift()) ) {
+			while( (handler = handlers[++i]) ) {
 				handler( args );
 			}
 		}
 	};
 
+	// Run main
+	runMain();
+
 	// EXPOSE API
 	global.define = define;
 	global.require = global.kjs = require;
 
-	// Handle data-main
-
-	kjsnode = document.getElementById('kjsnode');
-	if ( !kjsnode ) {
-		scripts = document.getElementsByTagName('script');
-		kjsnode = scripts[ scripts.length - 1 ];
-	}
-
-	appMain = kjsnode.getAttribute('data-main');
-	if ( appMain ) {
-		appMain = appMain.split( /\s*,\s*/ );
-		push.apply( incomingQueue, appMain );
-	}
-
-	setTimeout(function() {
-		if ( incomingQueue.length ) {
-			require( incomingQueue );
-			incomingQueue = [];
-		}
-	}, 0);
 })( this );
