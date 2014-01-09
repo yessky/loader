@@ -7,6 +7,7 @@
  */
 
 (function( global, undefined ) {
+	'use strict';
 
 	var version = '@version@',
 
@@ -629,7 +630,7 @@
 							exports = mod.exports = {};
 
 							try {
-								ret = factory( syncRequire(map.parentName), exports, mod );
+								ret = factory.call( global, syncRequire(map.parentName), exports, mod );
 							} catch (e) {
 								err = {
 									id: id,
