@@ -129,7 +129,7 @@
 
 	function normalize( path ) {
 		var isAbsolute = path.charAt(0) === '/',
-			trailingSlash = path.substr(-1) === '/',
+			trailingSlash = path.slice(-1) === '/',
 			parts = path.split('/'), ret = [], part;
 
 		for ( var i = 0, l = parts.length; i < l; i++ ) {
