@@ -638,16 +638,18 @@
 								};
 							}
 
-							if ( typeof ret !== strundef ) {
-								for ( name in exports ) {
-									if ( exports.hasOwnProperty(name) ) {
-										modified = true;
-										break;
-									}
+							for ( name in exports ) {
+								if ( exports.hasOwnProperty(name) ) {
+									modified = true;
+									break;
 								}
+							}
 
-								if ( !modified ) {
-									exports = exports === mod.exports ? ret : module.exports;
+							if ( !modified ) {
+								if ( exports === mod.exports ) {
+									exports = typeof ret === strundef ? exports : ret;
+								} else {
+									exports = mod.exports;
 								}
 							}
 						}
