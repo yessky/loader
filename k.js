@@ -460,17 +460,18 @@
 		}
 	}
 
-	function runMain() {
+	function reqConfig() {
 		var kjsnode = document.getElementById('kjsnode'),
-			scripts, appMain;
+			scripts, appConfig, cfg;
 
 		if ( !kjsnode ) {
 			scripts = document.getElementsByTagName('script');
 			kjsnode = scripts[ scripts.length - 1 ];
 		}
 
-		if ( (appMain = kjsnode.getAttribute('data-main')) ) {
-			require( [appMain] );
+		if ( (appConfig = kjsnode.getAttribute('data-config')) ) {
+			cfg = new Function( '','return {' + appConfig + '};' )();
+			require.config( cfg );
 		}
 	}
 
@@ -1025,8 +1026,8 @@
 		}
 	};
 
-	// Run main
-	runMain();
+	// Apply config
+	reqConfig();
 
 	// EXPOSE API
 	global.define = define;
