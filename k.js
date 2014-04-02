@@ -197,7 +197,7 @@
 		return (parts.length ? parts.join('/') : '.') + '/';
 	}
 
-	function filename( name, skipExt, fromBase ) {
+	function filename( name, skipExt ) {
 		var parts = name.split('/'),
 			paths = config.paths,
 			i = parts.length,
@@ -219,7 +219,7 @@
 		}
 
 		// Add base for relative path
-		if ( !rprotocol.test(name) && fromBase ) {
+		if ( !rprotocol.test(name) ) {
 			name = config.base + name;
 		}
 
@@ -277,7 +277,7 @@
 
 	function makeModuleMap( id, rel, fixed ) {
 		var isPrivate = false,
-			isRelative, map, moduleName, pluginName, i, name;
+			map, moduleName, pluginName, i, name;
 
 		if ( !id ) {
 			id = './_m>*>@_' + uid++;
@@ -287,8 +287,6 @@
 		if ( resolved.hasOwnProperty(id) ) {
 			return resolved[id];
 		}
-
-		isRelative = id.substring(0, 1) === '.';
 
 		if ( (i = id.indexOf('!')) > 0 ) {
 			moduleName = id.substring( i + 1 );
@@ -306,7 +304,7 @@
 			return resolved[id];
 		}
 
-		name = filename( moduleName, !!pluginName, !isRelative || rel !== false );
+		name = filename( moduleName, !!pluginName );
 		i = moduleName.lastIndexOf('/') + 1;
 
 		map = resolved[id] = {
