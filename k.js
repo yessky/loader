@@ -197,7 +197,7 @@
 		return (parts.length ? parts.join('/') : '.') + '/';
 	}
 
-	function filename( name, skipExt ) {
+	function filename( name, skipExt, fromBase ) {
 		var parts = name.split('/'),
 			paths = config.paths,
 			i = parts.length,
@@ -219,7 +219,7 @@
 		}
 
 		// Add base for relative path
-		if ( !rprotocol.test(name) ) {
+		if ( !rprotocol.test(name) && fromBase ) {
 			name = config.base + name;
 		}
 
@@ -276,17 +276,19 @@
 	}
 
 	function makeModuleMap( id, rel, fixed ) {
-		var inner = false,
-			map, moduleName, pluginName, i, name;
+		var isPrivate = false,
+			isRelative, map, moduleName, pluginName, i, name;
 
 		if ( !id ) {
-			id = '_m>*>@_' + uid++;
-			inner = true;
+			id = './_m>*>@_' + uid++;
+			isPrivate = true;
 		}
 
 		if ( resolved.hasOwnProperty(id) ) {
 			return resolved[id];
 		}
+
+		isRelative = id.substring(0, 1) === '.';
 
 		if ( (i = id.indexOf('!')) > 0 ) {
 			moduleName = id.substring( i + 1 );
@@ -304,12 +306,12 @@
 			return resolved[id];
 		}
 
-		name = filename( moduleName, !!pluginName );
+		name = filename( moduleName, !!pluginName, !isRelative || rel !== false );
 		i = moduleName.lastIndexOf('/') + 1;
 
 		map = resolved[id] = {
 			id: id,
-			inner: inner,
+			isPrivate: isPrivate,
 			moduleName: moduleName,
 			pluginName: pluginName,
 			parentName: moduleName.substring( 0, i ),
@@ -553,7 +555,7 @@
 
 			var map = this.map,
 				deps = this.deps,
-				rel = !map.inner && map.parentName,
+				rel = !map.isPrivate && map.parentName,
 				errback = this.onError, mid, mod;
 
 			for ( var i = 0, c = deps.length; i < c; i++ ) {
@@ -615,7 +617,7 @@
 				if ( this.remain === 0 && !this._defined ) {
 					var map = this.map,
 						id = map.id,
-						inner = map.inner,
+						isPrivate = map.isPrivate,
 						factory = this.factory,
 						args = this.defined,
 						mod = {
@@ -625,7 +627,7 @@
 						exports, ret, err, name, modified;
 
 					if ( isFunction(factory) ) {
-						if ( inner ) {
+						if ( isPrivate ) {
 							exports = factory.apply( global, args );
 						} else {
 							exports = mod.exports = {};
@@ -665,7 +667,7 @@
 
 					this.exports = mod.exports = exports;
 
-					if ( !inner ) {
+					if ( !isPrivate ) {
 						defined[id] = exports;
 					}
 
@@ -814,7 +816,7 @@
 		for ( id in activing ) {
 			if ( (mod = getProp(activing, id)) ) {
 				map = mod.map;
-				if ( map.inner ) {
+				if ( map.isPrivate ) {
 					requested.push( mod );
 				} else if ( !mod.error && !mod._inited && mod._fetched ) {
 					if ( !map.pluginName ) {
