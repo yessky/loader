@@ -13,6 +13,7 @@
 
 		toString = {}.toString,
 		strundef = typeof undefined,
+		isBrowser = typeof document !== strundef && typeof navigator !== strundef && !!document.documentElement,
 		isOpera = typeof opera !== strundef && opera.toString() === '[object Opera]',
 
 		rprotocol = /^[\w\+\.\-]+:\//,
@@ -1025,6 +1026,99 @@
 			}
 		}
 	};
+
+	require.ready = function( callback ) {
+		callback();
+	};
+
+	// Provide a built-in dom-ready API instead of a modular dom-ready
+	// to ensure that dom-ready is more faster and safer
+	if ( isBrowser ) {
+		var doc = global.document,
+			readyStates = { 'loaded': 1, 'complete': 1 },
+			isReady = !!(readyStates[doc.readyState] || doc.body),
+			readyList = [],
+			recursiveGuard,
+			processQueue = function() {
+				if ( recursiveGuard ) {
+					return;
+				}
+				recursiveGuard = true;
+				while ( readyList.length ) {
+					try {
+						(readyList.shift())( doc );
+					} catch(err) {}
+				}
+				recursiveGuard = false;
+			},
+			ensureReady = function() {
+				if ( !doc.body ) {
+					return setTimeout( ensureReady );
+				}
+				isReady = true;
+				processQueue();
+			},
+			completed = function( e ) {
+				if ( doc.addEventListener || e.type === 'load' || readyStates[doc.readyState] ) {
+					unbindListener();
+					ensureReady();
+				}
+			},
+			unbindListener = function() {
+				if ( doc.addEventListener ) {
+					doc.removeEventListener( 'DOMContentLoaded', completed, false );
+					global.removeEventListener( 'load', completed, false );
+
+				} else {
+					doc.detachEvent( 'onreadystatechange', completed );
+					global.detachEvent( 'onload', completed );
+				}
+			},
+			ready = require.ready = function( listener ) {
+				readyList.push( listener );
+				if ( isReady ) {
+					processQueue();
+				}
+			};
+
+		// TODO: required to consider the api for plugin loader
+		/*ready.load = function() {
+
+		};*/
+
+		if ( !isReady ) {
+			if ( doc.readyState === 'complete' ) {
+				setTimeout( ensureReady );
+			} else if ( doc.addEventListener ) {
+				doc.addEventListener( 'DOMContentLoaded', completed, false );
+				global.addEventListener( 'load', completed, false );
+			} else {
+				doc.attachEvent( 'onreadystatechange', completed );
+				global.attachEvent( 'onload', completed );
+
+				var top = false;
+
+				try {
+					top = global.frameElement == null && doc.documentElement;
+				} catch(e) {}
+
+				if ( top && top.doScroll ) {
+					(function doScrollCheck() {
+						if ( !isReady ) {
+							try {
+								top.doScroll('left');
+							} catch(e) {
+								return setTimeout( doScrollCheck, 50 );
+							}
+
+							unbindListener();
+							ensureReady();
+						}
+					})();
+				}
+			}
+		}
+	}
 
 	// Apply config
 	reqConfig();
