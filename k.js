@@ -489,6 +489,8 @@
 			return makeModuleMap( id, rel ).id;
 		};
 
+		req.ready = require.ready;
+
 		return req;
 	}
 
