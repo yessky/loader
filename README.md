@@ -21,7 +21,7 @@ details coming soon.
 
 	&lt;loader-plugin-module-id&gt;!&lt;target-resource&gt;
 
-	see more: <a href="http://veryos.com/projects/kmodule" target="_blank">http://veryos.com/projects/kmodule</a>
+	<!--see more: <a href="http://veryos.com/projects/kmodule" target="_blank">http://veryos.com/projects/kmodule</a>-->
 
 ## Contact
 
