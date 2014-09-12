@@ -34,8 +34,9 @@
 		memoried = {},
 
 		config = {
-			paths: {},
-			shim: {},
+			paths: false,
+			shim: false,
+			map: false,
 			base: './',
 			timeout: 0
 		},
@@ -70,7 +71,7 @@
 	}
 
 	function getProp( dest, name ) {
-		if ( dest.hasOwnProperty(name) ) {
+		if ( dest && dest.hasOwnProperty(name) ) {
 			return dest[name];
 		}
 	}
@@ -200,9 +201,23 @@
 
 	function filename( name, skipExt ) {
 		var parts = name.split('/'),
+			maps = config.map,
 			paths = config.paths,
 			i = parts.length,
 			part, val;
+
+		// Apply map rules
+		if ( maps && name.indexOf('://') === -1 ) {
+			parts = name.split('/');
+			for ( i =  parts.length; i > 0; i-- ) {
+				part = parts.slice(0, i).join('/');
+				if ( (val = getProp(maps, part)) ) {
+					parts.splice( 0, i, val );
+					break;
+				}
+			}
+			name = parts.join('/');
+		}
 
 		// Replace registered path
 		if ( paths ) {
@@ -227,53 +242,39 @@
 		// Add extension
 		name = (skipExt || name.slice(-3) === '.js' || name.indexOf('?') > -1 || name.slice(-1) === '/') ? name : name + '.js';
 
-		return name;
+		return normalize( name );
 	}
 
 	function resolve( name, baseName ) {
-		var maps, i, parts, part, val, isRelative;
+		var maps, i, parts, part, val, isNormalized;
 
 		if ( name.indexOf('//') === 0 ) {
 			name = protocol + name;
 			if ( name.indexOf(prefix) === 0 ) {
 				name = relativeBase( name.substring(pos) );
-				isRelative = true;
+				isNormalized = true;
 			}
 		} else if ( name.indexOf('://') > -1 ) {
 			if ( name.indexOf(prefix) === 0 ) {
 				name = relativeBase( name.substring(pos) );
-				isRelative = true;
+				isNormalized = true;
 			}
 		} else {
 			part = name.charAt(0);
-			isRelative = true;
 
 			if ( part === '/' ) {
 				name = relativeBase( name );
+				isNormalized = true;
 			} else if ( part === '.' ) {
 				if ( baseName ) {
-					name = normalize( baseName + name );
+					name = baseName + name;
 				} else if ( name.indexOf('./') === 0 ) {
 					name = name.substring(2);
 				}
 			}
 		}
 
-		// Apply map rules
-		if ( isRelative && maps ) {
-			maps = config.map;
-			parts = name.split('/');
-			for ( i =  parts.length; i > 0; i-- ) {
-				part = parts.slice(0, i).join('/');
-				if ( (val = getProp(maps, part)) ) {
-					parts.splice( 0, i, val );
-					break;
-				}
-			}
-			name = parts.join('/');
-		}
-
-		return name;
+		return isNormalized ? name : normalize( name );
 	}
 
 	function makeModuleMap( id, rel, fixed ) {
@@ -481,12 +482,12 @@
 			return defined[ makeModuleMap(id, rel).id ];
 		}
 
-		req.toUrl = function( id ) {
-			return makeModuleMap(id, rel).filename;
+		req.toUrl = function( id, ref ) {
+			return require.toUrl( id, ref || rel );
 		};
 
 		req.resolve = function( id, ref ) {
-			return makeModuleMap( id, rel ).id;
+			return makeModuleMap( id, ref || rel ).id;
 		};
 
 		req.ready = require.ready;
@@ -981,6 +982,7 @@
 						config[name] = {};
 					}
 					mixin( config[name], set );
+					break;
 				case 'shim':
 					if ( !config[name] ) {
 						config[name] = {};
@@ -1003,8 +1005,11 @@
 		return makeModuleMap( id, rel ).id;
 	};
 
-	require.toUrl = function( id, rel ) {
-		return makeModuleMap( id, rel ).filename;
+	require.toUrl = function( uri, rel ) {
+		var pos = uri.slice(-1) === '/' ? -4 : -5,
+			i = rel.lastIndexOf( '/' );
+		rel = i < 0 ? null : rel.slice( 0, i + 1 );
+		return makeModuleMap( uri + '/x', rel ).filename.slice( 0, pos );
 	};
 
 	require.on = function ( cid, handler ) {
