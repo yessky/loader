@@ -1,36 +1,38 @@
-A Light and Easy-To-Use Module Loader
-===
 
-k.js is a pure and light implemention of CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition</a> and <a href="" target="_blank">Modules/LoaderPlugin</a>.
+k.js是基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition</a> 和 <a href="" target="_blank">Modules/LoaderPlugin 规范实现的一个轻量级的高性能模块加载器</a>.
 
-simple samples at: <a href="http://test.veryos.com/core/index.html" target="_blank">http://test.veryos.com/core/index.html</a>.
+文档整理中 ...
 
-details coming soon.
+## 基本示例
 
-## Usage
+	查看示例<a href="http://test.veryos.com/core/index.html" target="_blank">http://test.veryos.com/core/index.html</a>.
 
-1. define a module.
+## 如何定义模块
 
-	define(function(){...});
+	``` javascript
+		define(["require", "./dep-a", "./dep-b"], function(depa, depb) {
+			var sum = depa + depb;
+			return sum + require("./text!./hello.html");
+		});
 
-2. use/require a module.
+	```
 
-	require(module-id[module-ids-array], function(exports){...});
+## 如何使用模块
 
-3. use module loader plugin.
+	``` javascript
+		require([module-id-1, module-id-2], function(mod1, mod2){
+			// do something
+		});
+	```
 
-	&lt;loader-plugin-module-id&gt;!&lt;target-resource&gt;
+## 如何使用插件
 
-	<!--see more: <a href="http://veryos.com/projects/kmodule" target="_blank">http://veryos.com/projects/kmodule</a>-->
-
-## Contact
-
-admin@veryos.com aaron.xiao
-
-## Help
-
-If you have any questions, feel free to <a href="https://github.com/yessky/kmodule/issues/new" target="_blank">create ticket</a> or <a href="mailto:admin@veryos.com" target="_blank">contact via email</a>.
+	```
+		require(["./text!README.md"], function(txt) {
+			document.write(txt);
+		});
+	```
 
 ## License
 
-KModule is available under the terms of the <a href="http://veryos.com/lab/license" target="_blank">MIT License</a>.
+	基于 <a href="http://veryos.com/lab/license" target="_blank">MIT License</a>.
