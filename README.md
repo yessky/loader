@@ -3,6 +3,10 @@ k.js是基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition<
 
 文档整理中 ...
 
+```js
+showdown.setOption('optionKey', 'value');
+```
+
 ## 基本示例
 
 	查看示例<a href="http://test.veryos.com/core/index.html" target="_blank">http://test.veryos.com/core/index.html</a>.
