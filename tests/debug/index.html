@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>如何进行调试跟踪</title>
+	<script type="text/javascript" src="../k.js"></script>
+</head>
+<body>
+	<div id="output">
+		<h3>通过require.on("trace", cb)这个api来跟踪调试模块从下载到执行过程</h3>
+	</div>
+	<script type="text/javascript">
+		var printstr = function(str) {
+			document.getElementById("output").innerHTML += "<p>" + str + "</p>";
+		};
+		require.config({
+			baseUrl: "../circular/"
+		});
+		require.on("trace", function(type, info) {
+			printstr(type + " : " + info);
+		});
+		require(["./1"], function() {
+			printstr("require completely!");
+		});
+	</script>
+</body>
+</html>

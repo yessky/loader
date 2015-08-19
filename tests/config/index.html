@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>config test</title>
+	<script type="text/javascript" src="../k.js"></script>
+</head>
+<body>
+	<div id="output">
+		<h3>配置paths，将模块映射至它域下载</h3>
+	</div>
+	<script type="text/javascript">
+		var printstr = function(str) {
+			document.getElementById("output").innerHTML += "<p>" + str + "</p>";
+		};
+		var startTime = +new Date;
+		require({
+			paths: {
+				"remote": "http://dev.veryos.com/webos/lib"
+			}
+		}, ['remote/kernel/lang'], function(a) {
+			printstr("load " + require.toUrl("remote/kernel/lang.js") + " successfully.");
+			printstr("time cost " + (+new Date - startTime) + " ms.");
+			console.log(["export", a]);
+		});
+	</script>
+</body>
+</html>

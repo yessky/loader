@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>circular test</title>
+	<script type="text/javascript" src="../k.js"></script>
+</head>
+<body>
+	<div id="output"></div>
+	<script type="text/javascript">
+		var printstr = function(str) {
+			document.getElementById("output").innerHTML += "<p>" + str + "</p>";
+		};
+		var startTime = +new Date;
+		require.on("trace", function(type, info) {
+			if (type === "trace:circular-dependency") {
+				var seq = info[0].split("=>");
+				printstr("found circular dependencies: " + (seq.shift(), seq.join(" => ")));
+			}
+		});
+		require(["./1"], function(a) {
+			printstr("module ready with circular dependencies. time cost:" + (+new Date - startTime) + " ms.");
+			console.log(["export", a]);
+		});
+	</script>
+</body>
+</html>

@@ -6,6 +6,9 @@ var gulp = require("gulp")
 
 	, uglify = require("gulp-uglify")
 
+	, browserSync = require("browser-sync").create()
+	, reload = browserSync.reload
+
 	, sequence = require("run-sequence")
 	, plumber = require("gulp-plumber")
 
@@ -79,7 +82,19 @@ gulp.task("concat", function() {
 			"loader-trace-api": 1
 		}))
 		.pipe(concat("k.js"))
-		.pipe(gulp.dest(dest));
+		.pipe(gulp.dest(dest))
+		.pipe(gulp.dest("./tests/"));
+});
+
+// # start test server
+gulp.task("serv", function() {
+	browserSync.init({
+		ui: false,
+		port: 7000,
+		server: {
+			baseDir: "./tests"
+		}
+	});
 });
 
 

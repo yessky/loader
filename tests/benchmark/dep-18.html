@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>dep-18 benchmark</title>
+	<script type="text/javascript" src="../k.js"></script>
+</head>
+<body>
+	<div id="output"></div>
+	<script type="text/javascript">
+		var printstr = function(str) {
+			document.getElementById("output").innerHTML += "<p>" + str + "</p>";
+		};
+		var startTime = +new Date;
+	</script>
+	<script src="combo-deep-18.js"></script>
+	<script type="text/javascript">
+		require(["18/1-1"], function(a) {
+			var endTime = +new Date;
+			printstr("time cost: " + (endTime - startTime) + " ms.");
+		});
+	</script>
+</body>
+</html>

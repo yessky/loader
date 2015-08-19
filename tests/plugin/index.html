@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>plugin test</title>
+	<script type="text/javascript" src="../k.js"></script>
+</head>
+<body>
+	<div id="output"></div>
+	<script type="text/javascript">
+		var printstr = function(str) {
+			document.getElementById("output").innerHTML += "<p>" + str + "</p>";
+		};
+		var startTime = +new Date;
+		require(["text!./1.js"], function(a) {
+			var endTime = +new Date;
+			printstr("plugin/text!./1.js ready. time cost: " + (endTime - startTime) + " ms.");
+			console.log(["plugin/text!./1.js export ", a]);
+		});
+		require(["./text!./2.js"], function(a) {
+			var endTime = +new Date;
+			printstr("./plugin/text!./2.js ready. time cost: " + (endTime - startTime) + " ms.");
+			console.log(["./plugin/text!./2.js export ", a]);
+		});
+	</script>
+</body>
+</html>
