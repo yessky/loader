@@ -10,10 +10,10 @@ k.js是基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition<
 ## 如何定义模块
 
 	```javascript
-		define(["require", "./dep-a", "./dep-b"], function(depa, depb) {
-			var sum = depa + depb;
-			return sum + require("./text!./hello.html");
-		});
+	define(["require", "./dep-a", "./dep-b"], function(depa, depb) {
+		var sum = depa + depb;
+		return sum + require("./text!./hello.html");
+	});
 
 	```
 
