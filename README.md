@@ -1,5 +1,5 @@
 
-k.js是基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition</a> 和 <a href="" target="_blank">Modules/LoaderPlugin 规范实现的一个轻量级的高性能模块加载器</a>.
+k.js是基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition</a> 和 <a href="" target="_blank">Modules/LoaderPlugin </a>规范实现的一个轻量级的高性能模块加载器.
 
 文档整理中 ...
 
@@ -9,7 +9,7 @@ k.js是基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition<
 
 ## 如何定义模块
 
-	``` javascript
+	```javascript
 		define(["require", "./dep-a", "./dep-b"], function(depa, depb) {
 			var sum = depa + depb;
 			return sum + require("./text!./hello.html");
@@ -19,7 +19,7 @@ k.js是基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition<
 
 ## 如何使用模块
 
-	``` javascript
+	```javascript
 		require([module-id-1, module-id-2], function(mod1, mod2){
 			// do something
 		});
@@ -27,7 +27,7 @@ k.js是基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition<
 
 ## 如何使用插件
 
-	```
+	```javascript
 		require(["./text!README.md"], function(txt) {
 			document.write(txt);
 		});
