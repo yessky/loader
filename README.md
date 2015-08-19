@@ -31,7 +31,7 @@ require([module-id-1, module-id-2], function(mod1, mod2){
 require(["./text!README.md"], function(txt) {
 	document.write(txt);
 });
-	```
+```
 
 ## License
 
