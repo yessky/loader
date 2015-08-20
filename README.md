@@ -33,6 +33,10 @@ require(["./text!README.md"], function(txt) {
 });
 ```
 
+## 如何构建线上版本
+
+<a href="//github.com/yessky/builder-demo">查看构建示例</a>
+
 ## License
 
 基于 <a href="http://veryos.com/lab/license" target="_blank">MIT License</a>.
