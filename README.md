@@ -1,5 +1,5 @@
 
-k.js是基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition</a> 和 <a href="" target="_blank">Modules/LoaderPlugin </a>规范实现的一个轻量级的高性能模块加载器.
+基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition</a> 和 <a href="" target="_blank">Modules/LoaderPlugin </a>规范实现的一个轻量级的高性能模块加载器.
 
 文档整理中 ...
 
