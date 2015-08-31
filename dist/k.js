@@ -462,7 +462,8 @@
 				mid = plugin.mid + "!" + prid;
 			} else {
 				prid = match[2];
-				mid = plugin.mid + "!*@" + uid++;
+				//mid = plugin.mid + "!*@" + uid++;
+				mid = plugin.mid + "!" + makeModuleMap(prid, ref).mid;
 			}
 			result = {
 				mid: mid,
@@ -503,7 +504,11 @@
 				} else {
 					plugin.loadQ = [module];
 					execQ.unshift(plugin);
-					injectModule(plugin);
+					if (plugin.injected === loaded && !plugin.load) {
+						execModule(plugin);
+					} else {
+						injectModule(plugin);
+					}
 				}
 			} else {
 				var cursum = loadsum;
@@ -522,6 +527,7 @@
 					if (module.injected !== loaded) {
 						signal(error, makeError("nonamdError", [url, module.mid]));
 					}
+					injectDependencies(module);
 					// some modules arrived, do check
 					if (loadsum !== cursum) {
 						checkComplete();
@@ -619,6 +625,10 @@
 			trace("circular-dependency", [execTrace.concat(module.mid).join(" => ")]);
 			return !module.def ? abortExec :	(module.cjs && module.cjs.exports);
 		}
+		if (!module.injected) {
+			injectModule(module);
+			return abortExec;
+		}
 		if (!module.executed) {
 			if (!module.def) {
 				return abortExec;
@@ -711,12 +721,14 @@
 				var srcModule;
 				if (!(srcModule = registry[mid])) {
 					registry[mid] = srcModule = mix(mix({}, src), {prid: prid, mid: mid});
+				} else {
+					srcModule.prid = prid;
 				}
 				src.resolveId(srcModule);
 				delete registry[src.mid];
 				injectModule(srcModule);
 			}
-			module.loadQ = null;
+			module.loadQ = undefined;
 		}
 		for (var i = 0; i < execQ.length;) {
 			if (execQ[i] === module) {

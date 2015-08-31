@@ -86,6 +86,18 @@ gulp.task("concat", function() {
 		.pipe(gulp.dest("./tests/"));
 });
 
+// # compress
+gulp.task("uglify", function() {
+	return gulp.src([dest + "k.js"])
+		.pipe(uglify())
+		.pipe(through2.obj(function(file, enc, cb) {
+			file.path = file.path.replace(".js", ".min.js");
+			this.push(file);
+			cb();
+		}))
+		.pipe(gulp.dest(dest))
+});
+
 // # start test server
 gulp.task("serv", function() {
 	browserSync.init({
@@ -104,5 +116,5 @@ gulp.task("default", function(cb) {
 });
 
 gulp.task("release", function(cb) {
-	sequence("clean", "concat", cb);
+	sequence("clean", "concat", "uglify", cb);
 });
