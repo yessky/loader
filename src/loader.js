@@ -414,7 +414,6 @@
 					if (module.injected !== loaded) {
 						signal(error, makeError("nonamdError", [url, module.mid]));
 					}
-					injectDependencies(module);
 					// some modules arrived, do check
 					if (loadsum !== cursum) {
 						checkComplete();
