@@ -1,13 +1,6 @@
 
 基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition</a> 和 <a href="" target="_blank">Modules/LoaderPlugin </a>规范实现的一个轻量级的高性能模块加载器.
 
-文档整理中 ...
-
-
-## 基本示例
-
-查看示例<a href="http://test.veryos.com/core/index.html" target="_blank">http://test.veryos.com/core/index.html</a>.
-
 ## 如何定义模块
 
 ```js
@@ -33,10 +26,20 @@ require(["./text!README.md"], function(txt) {
 });
 ```
 
+## 在线基本示例
+
+查看示例<a href="http://test.veryos.com/core/index.html" target="_blank">http://test.veryos.com/core/index.html</a>.
+
 ## 如何构建线上版本
 
-<a href="//github.com/yessky/builder-demo">查看构建示例</a>
+<a href="//github.com/yessky/kspack">kspack为k.js量身订做的打包工具</a>
+
+<a href="//github.com/yessky/spa-sample-project">查看使用k.js的示例项目</a>
+
+<a href="http://m.music.migu.com">咪咕音乐触屏版</a>
 
 ## License
 
-基于 <a href="http://veryos.com/lab/license" target="_blank">MIT License</a>.
+使用时请添加并保留版权信息
+
+基于 <a href="https://github.com/yessky/loader/blob/master/LICENSE.md">MIT License.</a>
