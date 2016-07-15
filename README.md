@@ -36,7 +36,7 @@ require(["./text!README.md"], function(txt) {
 
 <a href="//github.com/yessky/spa-sample-project">查看使用k.js的示例项目</a>
 
-<a href="http://m.music.migu.com">咪咕音乐触屏版</a>
+<a href="http://m.music.migu.cn">咪咕音乐触屏版</a>
 
 ## License
 
