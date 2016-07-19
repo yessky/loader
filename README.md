@@ -47,23 +47,23 @@ require(["./text!README.md"], function(txt) {
 
 ## Install - 如何获取loader
 
-	1. build from source
+1. build from source
 
-	```
-	workspace@yourname: git clone https://github.com/yessky/loader.git
-	workspace@yourname: cd loader
-	loader@yourname:		gulp release
-	copy dist/k.min.js to your project - 复制dist/k.min.js到你的项目中
-	```
+```
+workspace@yourname: git clone https://github.com/yessky/loader.git
+workspace@yourname: cd loader
+loader@yourname:		gulp release
+copy dist/k.min.js to your project - 复制dist/k.min.js到你的项目中
+```
 
-	2. directly download
+2. directly download
 
-	[product version][min]
+[product version][min]
 
-	[devlopment version][max]
+[devlopment version][max]
 
-	[min]: https://raw.githubusercontent.com/yessky/loader/master/dist/k.min.js
-	[max]: https://raw.githubusercontent.com/yessky/loader/master/dist/k.js
+[min]: https://raw.githubusercontent.com/yessky/loader/master/dist/k.min.js
+[max]: https://raw.githubusercontent.com/yessky/loader/master/dist/k.js
 
 ## Run tests and demos - 测试和使用示例
 
