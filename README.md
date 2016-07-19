@@ -1,45 +1,86 @@
+# k.js - a module loader
 
-基于CommonJS <a href="" target="_blank">Modules/AsynchronousDefinition</a> 和 <a href="" target="_blank">Modules/LoaderPlugin </a>规范实现的一个轻量级的高性能模块加载器.
+A Super Fast And Light Module Loader implemented CommonJS [Modules/AsynchronousDefinition][amdspec] and [Modules/LoaderPlugin][pluginspec] Specifications.
 
-## 如何定义模块
+基于CommonJS [Modules/AsynchronousDefinition][amdspec] 和 [Modules/LoaderPlugin][pluginspec] 规范实现的一个轻量级的高性能模块加载器.
+
+[amdspec]: http://wiki.commonjs.org/wiki/Modules/AsynchronousDefinition
+[pluginspec]: http://wiki.commonjs.org/wiki/Modules/LoaderPlugin
+
+## Usage - 用法
+
+### 1. define a module - 定义模块
 
 ```js
+// amd(requirejs) style － amd(requirejs)风格
 define(["require", "./dep-a", "./dep-b"], function(depa, depb) {
 	var sum = depa + depb;
 	return sum + require("./text!./hello.html");
 });
-```
-
-## 如何使用模块
-
-```js
-require([module-id-1, module-id-2], function(mod1, mod2){
-	// do something
+// cjs style - cjs风格
+define(function(require, exports, module) {
+	return require("./lang").indexOf([1, 2, 3], 4) > -1;
 });
 ```
 
-## 如何使用插件
+### 2. require/load a module - 加载/使用模块
 
 ```js
+// synax - 语法
+require([module-id-1, module-id-2], function(mod1, mod2){
+	// do something
+});
+// example - 例子
+require(["./lang"], function(lang) {
+	console.log(lang.indexOf(["a", "b"], "c"));
+});
+```
+
+### 3. use plugin - 如何使用插件
+
+```js
+// use text plugin to load a file
 require(["./text!README.md"], function(txt) {
 	document.write(txt);
 });
 ```
 
-## 在线基本示例
+## Install - 如何获取loader
 
-查看示例<a href="http://test.veryos.com/core/index.html" target="_blank">http://test.veryos.com/core/index.html</a>.
+	1. build from source
 
-## 如何构建线上版本
+	```
+		workspace@yourname: git clone https://github.com/yessky/loader.git
+		workspace@yourname: cd loader
+		loader@yourname:		gulp release
+		copy dist/k.min.js to your project - 复制dist/k.min.js到你的项目中
+	```
 
-<a href="//github.com/yessky/kspack">kspack为k.js量身订做的打包工具</a>
+	2. directly download [product version][min]
 
-<a href="//github.com/yessky/spa-sample-project">查看使用k.js的示例项目</a>
+	3. directly download [devlopment version][max]
 
-<a href="http://m.music.migu.cn">咪咕音乐触屏版</a>
+	[min]: https://raw.githubusercontent.com/yessky/loader/master/dist/k.min.js
+	[max]: https://raw.githubusercontent.com/yessky/loader/master/dist/k.js
 
-## License
+## Run tests and demos - 测试和使用示例
 
-使用时请添加并保留版权信息
+	clone the source to your local machine. then run `gulp` to run tests and view demos
 
-基于 <a href="https://github.com/yessky/loader/blob/master/LICENSE.md">MIT License.</a>
+## Built/Package - 如何构建线上版本
+
+["kspack": A Builder/Packer/Optimizer for the loader - kspack为k.js量身订做的打包工具][builder]
+
+[A spa-sample-project using the loader - 查看完整基于loader的单页示例项目][sample]
+
+[A running proudct based on the loader - 基于该loader的生产项目 咪咕音乐触屏版][product]
+
+[builder]: https://github.com/yessky/kspack
+[sampe]: https://github.com/yessky/spa-sample-project
+[product]: http://m.music.migu.cn
+
+## License - 授权
+
+[MIT License][license]
+
+[license]: https://github.com/yessky/loader/blob/master/LICENSE.md
