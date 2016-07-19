@@ -112,7 +112,7 @@ gulp.task("serv", function() {
 
 // # build
 gulp.task("default", function(cb) {
-	sequence("clean", "concat", cb);
+	sequence("clean", "concat", "serv", cb);
 });
 
 gulp.task("release", function(cb) {

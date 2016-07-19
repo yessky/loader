@@ -20,3 +20,6 @@
 	has.add("host-browser", typeof document !== "undefined" && typeof location !== "undefined");
 	has.add("ie-event-behavior", has("host-browser") && document.attachEvent && typeof Windows === "undefined" && (typeof opera === "undefined" || opera.toString() != "[object Opera]"));
 	has.add("host-node", typeof process === "object" && process.versions && process.versions.node);
+	has.add("loader-debug-api", 1);
+	has.add("loader-config-api", 1);
+	has.add("loader-trace-api", 1);

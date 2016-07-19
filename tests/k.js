@@ -1,6 +1,6 @@
 /*
- * kjs - A Light And Easy-To-Use Module Loader
- * Copyright (C) 2015 aaron.xiao
+ * k.js - A Light, Super Fast And Easy-To-Use Module Loader
+ * Copyright (C) 2013-2099 aaron.xiao<admin@veryos.com>
  */
 
 !function( global ) {
@@ -26,6 +26,9 @@
 	has.add("host-browser", typeof document !== "undefined" && typeof location !== "undefined");
 	has.add("ie-event-behavior", has("host-browser") && document.attachEvent && typeof Windows === "undefined" && (typeof opera === "undefined" || opera.toString() != "[object Opera]"));
 	has.add("host-node", typeof process === "object" && process.versions && process.versions.node);
+	has.add("loader-debug-api", 1);
+	has.add("loader-config-api", 1);
+	has.add("loader-trace-api", 1);
 	has.add("loader-debug-api", 1);
 	has.add("loader-config-api", 1);
 	has.add("loader-trace-api", 1);
@@ -62,6 +65,16 @@
 			dest[name] = src[name];
 		}
 		return dest;
+	}
+
+	function forEach(array, iter) {
+		if (array.forEach) {
+			array.forEach(iter);
+		} else {
+			for (var i = 0, l = array.length; i < l; ++i) {
+				iter(array[i], i);
+			}
+		}
 	}
 
 	function makeError(error, info) {
@@ -119,6 +132,7 @@
 	var midsMap = {};
 	var midsMapping = [];
 	var pathsMapping = [];
+	var shims = {};
 
 	// @config - <object>
 	function configure(config) {
@@ -128,6 +142,7 @@
 		if (config.paths) {
 			pathsMapping = computeMap(config.paths);
 		}
+		mix(shims, config.shim);
 		if (has("loader-trace-api")) {
 			trace("config", [config]);
 		}
@@ -170,7 +185,7 @@
 	function normalizePath(path) {
 		var result = [];
 		var seg, last;
-		path = path.replace(/\\/g, "/").split("/");
+		path = path.split("/");
 		while (path.length) {
 			seg = path.shift();
 			if (seg === ".." && result.length && last !== "..") {
@@ -183,46 +198,199 @@
 		return result.join("/");
 	}
 
-	// module status
-	var requested = 1;
-	var loaded = 2;
-	var builtin = 3;
-	var executing = 4;
-	var executed = 5;
-	// cache all modules
-	var registry = {};
-	// waiting module map
-	var waiting = {};
-	// for semantic debug
-	if (has("loader-debug-api")) {
-		requested = "requested";
-		loaded = "loaded";
-		builtin = "builtin";
-		executing = "executing";
-		executed = "executed";
+	function makeShim(module) {
+		var shim = shims[module.mid];
+		var exports = shim.exports;
+		return {
+			deps: shim.deps || [],
+			def: isFunction(exports) ? exports :
+				isString(exports) ? makeDefine(getObject(exports)) : 
+				makeDefine(exports)
+		}
 	}
 
-	// define cjs things
-	var cjsmeta = {
-		def: builtin,
-		result: builtin,
-		injected: loaded,
-		executed: executed
-	};
-	var cjsRequire = mix(getModule('require'), cjsmeta);
-	var cjsExports = mix(getModule('exports'), cjsmeta);
-	var cjsModule = mix(getModule('module'), cjsmeta);
+	function makeDefine(exports) {
+		return function() {
+			return exports;
+		}
+	}
 
-	// anonymous module
-	var amd = 0;
+	function getObject(expr) {
+		var p = expr.split(".");
+		var g = window;
+		for (var i = 0, l = p.length; i < l; ++i) {
+			if (!g[p[i]]) {
+				return null;
+			}
+			g = g[p[i]];
+		}
+		return g;
+	}
+
+	var hub = mix({}, Evented);
+
+	function on(type, listener) {
+		return hub.on.call(hub, type, listener);
+	}
+
+	function signal(type, args) {
+		return hub.signal.call(hub, type, args);
+	}
+
+	// 模块状态
+	var REQUESTED = 1;
+	var LOADED = 2;
+	var EXECUTING = 4;
+	var EXECUTED = 5;
+
+	if (has("loader-debug-api")) {
+		REQUESTED = "requested";
+		LOADED = "loaded";
+		EXECUTING = "executing";
+		EXECUTED = "executed";
+	}
+
+	// 注册的模块
+	var registry = {};
+	// @mid - <module id>
+	// @ref - <referrence module instance>
+	function makeModuleMap(mid, ref, established) {
+		var result;
+		if (!established && ref && mid.charAt(0) === ".") {
+			mid = ref.mid + "/../" + mid;
+		}
+		mid = normalizePath(mid);
+		if (!(result = registry[mid])) {
+			var refMap = ref && execMap(ref.mid, midsMapping);
+			var midMap;
+			refMap = refMap ? refMap[1] : midsMapping.star;
+			if (refMap && (midMap = execMap(mid, refMap))) {
+				mid = midMap[1] + mid.slice(midMap[3]);
+			}
+			if (!(result = registry[mid])) {
+				var pathMap = execMap(mid, pathsMapping);
+				var url = pathMap ? pathMap[1] + mid.slice(pathMap[3]) : mid;
+				if (!(/^(?:\/|\w+:)/.test(url))) {
+					url = baseUrl + url;
+				}
+				if (!(/\.js(?:\?[^?]*)?$/.test(url))) {
+					url += ".js";
+				}
+				result = {
+					mid: mid,
+					url: normalizePath(url),
+					injected: 0,
+					executed: 0
+				};
+			}
+		}
+		return result;
+	}
+
+	// @mid - <module id>
+	// @ref - <referrence module instance>
+	function getModule(mid, ref, established) {
+		var match = mid.match(/^(.+?)\!(.*)$/);
+		var result;
+		if (match) {
+			var plugin = getModule(match[1], ref, established);
+			var req = createRequire(ref);
+			var ready = !!plugin.load;
+			var prid;
+			if (established) {
+				prid = match[2];
+				mid = plugin.mid + "!" + prid;
+			}
+			// 运行时的模块id
+			else {
+				if (ready) {
+					prid = resolveResource(plugin, match[2], req);
+					mid = plugin.mid + "!" + prid;
+				} else {
+					prid = match[2];
+					mid = plugin.mid + "!*@pm" + uid++;
+				}
+			}
+			result = {
+				mid: mid,
+				plugin: plugin,
+				req: req,
+				prid: prid,
+				fix: !ready,
+				injected: 0,
+				executed: 0
+			};
+		} else {
+			result = makeModuleMap(mid, ref, established);
+		}
+		return registry[result.mid] || (registry[result.mid] = result);
+	}
+
+	function resolve(name, ref) {
+		var map = makeModuleMap(name + "/x", ref);
+		return {
+			mid: map.mid.slice(0, map.mid.length - 2),
+			url: map.url.slice(0, map.url.length - 5)
+		}
+	}
+
+	function toUrl(name, ref) {
+		return resolve(name, ref).url;
+	}
+
+	function resolveResource(plugin, prid, req) {
+		return plugin.normalize ? plugin.normalize(prid, req.resolve) : req.resolve(prid);
+  }
+
+  function trimArray( parts ) {
+		var start = 0, len = parts.length;
+		for ( ; start < len; start++ ) {
+			if ( parts[start] !== '' ) break;
+		}
+		var end = len - 1;
+		for ( ; end >= 0; end-- ) {
+			if ( parts[end] !== '' ) break;
+		}
+		if ( start > end ) return [];
+		return parts.slice( start, end + 1 );
+	}
+
+  function relative(from, to) {
+		to = normalizePath(to);
+		var fromParts = trimArray( from.split('/') );
+		var toParts = trimArray( to.split('/') );
+		var length = Math.min( fromParts.length, toParts.length );
+		var samePartsLength = length;
+		for (var i = 0; i < length; i++) {
+			if (fromParts[i] !== toParts[i]) {
+				samePartsLength = i;
+				break;
+			}
+		}
+		var outputParts = [];
+		for (var i = samePartsLength; i < fromParts.length; i++) {
+			outputParts.push( '..' );
+		}
+		outputParts = outputParts.concat(toParts.slice(samePartsLength));
+		return outputParts.join('/');
+	}
+
+	// 内置的cjs模块(require, exports, module)
+	var cjsmeta = {
+		def: true,
+		result: true,
+		injected: LOADED,
+		executed: EXECUTED
+	};
+	var cjsRequire = mix(getModule("require"), cjsmeta);
+	var cjsExports = mix(getModule("exports"), cjsmeta);
+	var cjsModule = mix(getModule("module"), cjsmeta);
 
 	// @mid - <module id>
 	// @deps - <dependencies array>
 	// @factory - <function>
 	function def(mid, deps, factory) {
 		var l = arguments.length;
-
-		// deduce module's meta data
 		if (l === 1) {
 			factory = mid;
 			mid = deps = 0;
@@ -231,45 +399,30 @@
 			deps = mid;
 			mid = 0;
 		}
-
-		// normal factory should be a function
-		var isNormalFactory = isFunction(factory);
-		// make sure factory is a function
-		if (!isNormalFactory) {
-			var value = factory;
-			factory = function() {
-				return value;
-			};
-		}
-		// normal mid should be a string
-		if (mid && !isString(mid)) {
-			mid = 0;
-		}
-		// common-js wrapping
-		if (isNormalFactory && l === 1) {
+		if (mid && !isString(mid)) { mid = 0; }
+		// cjs方式定义模块
+		if (isFunction(factory) && l === 1) {
 			deps = ["require", "exports", "module"];
-			// extract dependencies from factory
+			// 从factory提取依赖
 			factory.toString()
 				.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/mg, "")
 				.replace(/require\s*\(\s*(["'])(.*?[^\\])\1\s*\)/g, function(a, q, m) {
 					deps.push(m);
 					return a;
 				});
-		} else {
-			if (!isArray(deps)) {
-				deps = isString(deps) ? [deps] : [];
-			}
 		}
-
-		// explicit define(in general, it's a built module/package)
-		// so just define it
+		// 确保依赖是一个数组
+		else if (!isArray(deps)) {
+			deps = isString(deps) ? [deps] : [];
+		}
+		// 指定了模块ID(相对于baseUrl)
+		// 	1. 开发版本，如指明模块ID则必须相对于baseUrl
+		// 	2. 线上版本，模块经过编译打包后计算出来的模块ID
 		if (mid) {
-			defineModule(getModule(mid), deps, factory);
+			defineModule(getModule(mid, null, true), deps, factory);
 		}
-		// amd branch, let's defineModule after script executed
+		// 异步按需加载模块，收集模块信息
 		else {
-			// take the last module defination
-			// ie9- do not fire script onload right after executing the script
 			if (has("ie-event-behavior")) {
 				for (var i = document.scripts.length - 1, script; (script = document.scripts[i]); --i) {
 					if (script.readyState === "interactive") {
@@ -278,7 +431,6 @@
 					}
 				}
 			}
-			// w3c browser
 			else {
 				amd = [deps, factory];
 			}
@@ -294,26 +446,27 @@
 			deps = config;
 			config = null;
 		}
-		if (config && has('loader-config-api')) {
+		if (config && has("loader-config-api")) {
 			configure(config);
 		}
 		return contextRequire(deps, callback);
 	}
 
+	req.async = function(mids, cb) {
+		return req(mids, cb)
+	};
+	req.on = on;
 	req.config = configure;
+	req.resolve = function(mid, ref) {
+		return resolve(mid, ref).mid;
+	};
 	req.toUrl = toUrl;
-	req.resolve = resolve;
-
-	var evented = mix({}, Evented);
-
-	var on = req.on = function(type, listener) {
-		return evented.on.call(evented, type, listener);
+	req.relative = function(path) {
+		return relative(baseUrl, toUrl(path));
 	};
-
-	var signal = req.signal = function(type, args) {
-		return evented.signal.call(evented, type, args);
+	req.context = function(mid) {
+		return createRequire(getModule(mid));
 	};
-
 	if (has("loader-trace-api")) {
 		var trace = req.trace = function(group, details) {
 			signal("trace", ["trace:" + group, details]);
@@ -323,328 +476,124 @@
 	var error = "error";
 	var uid = 1;
 	var execQ = [];
+	var guardCheck = 0;
 
 	// @deps - <string or array>
 	// @callback - <anything>
 	// @ref - <referrence module instalnce>
 	function contextRequire(deps, callback, ref) {
 		var module;
-		// local sync require
+		// 获取模块接口
 		if (isString(deps)) {
 			module = getModule(deps, ref);
-			// module is not ready
 			if (!module.executed) {
 				throw makeError("Attempt to require unloaded module " + module.mid);
 			}
-			module = module.result;
+			return module.result;
 		}
+		// 加载模块
 		else if (isArray(deps)) {
 			module = getModule("*@" + uid++, ref);
 			mix(module, {
 				clear: 1,
-				deps: resolveDependencies(deps, module, ref),
+				deps: resolveDeps(deps, module, ref),
 				def: callback || noop,
-				injected: loaded
+				injected: LOADED
 			});
-			injectDependencies(module);
+			injectDeps(module);
 			execQ.push(module);
 			checkComplete();
 		}
-		return module;
 	}
 
-	// @module - <module instalnce>
-	function createRequire(module) {
-		var result = (!module && req) || module.require;
-		if (!result) {
-			module.require = result = function(mid, callback) {
-				return contextRequire(mid, callback, module);
-			};
-			mix(result, req);
-			result.resolve = function(mid) {
-				return resolve(mid, module);
-			};
-			result.toUrl = function(url) {
-				return toUrl(url, module);
-			};
+	var isIdle = req.idle = function() {
+		return !amd && isEmpty(waiting) && !execQ.length && !guardCheck;
+	};
+
+	function idleExec(exec) {
+		++guardCheck;
+		exec();
+		--guardCheck;
+		if (isIdle()) {
+			signal("idle", []);
 		}
-		return result;
 	}
 
-	// @deps - <string or array>
-	// @module - <module instance>
-	// @ref - <referrence module instalnce>
-	function resolveDependencies(deps, module, ref) {
-		for (var result = [], i = 0, l = deps.length; i < l; ++i) {
-			var dep = getModule(deps[i], ref);
-			if (dep.resolveId) {
-				dep.resolveId = (function(i) {
-					return function(result) {
-						module.deps[i] = result;
-					};
-				})(i);
-			}
-			result.push(dep);
-		}
-		return result;
-	}
-
-	// @module - <module instalnce>
-	function injectDependencies(module) {
-		idleExec(function() {
-			for (var dep, i = 0, deps = module.deps; dep = deps[i]; ++i) {
-				injectModule(dep);
-			}
-		});
-	}
-
-	// @mid - <module id>
-	// @ref - <referrence module instance>
-	function makeModuleMap(mid, ref) {
-		mid = normalizePath(mid.charAt(0) === '.' && ref ? (ref.mid + "/../" + mid) : mid);
-		var result;
-		if (!(result = registry[mid])) {
-			var refMap = ref && execMap(ref.mid, midsMapping);
-			var midMap;
-			refMap = refMap ? refMap[1] : midsMapping.star;
-			if (refMap && (midMap = execMap(mid, refMap))) {
-				mid = midMap[1] + mid.slice(midMap[3]);
-			}
-			if (!(result = registry[mid])) {
-				// # apply path mapping
-				var pathMap = execMap(mid, pathsMapping);
-				var url = pathMap ? pathMap[1] + mid.slice(pathMap[3]) : mid;
-				// # adding baseUrl
-				if (!(/^(?:\/|\w+:)/.test(url))) {
-					url = baseUrl + url;
-				}
-				// # adding .js sufmod
-				if (!(/\.js(?:\?[^?]*)?$/.test(url))) {
-					url += ".js";
-				}
-				result = {
-					mid: mid,
-					url: url,
-					injected: 0,
-					executed: 0
-				};
-			}
-		}
-		return result;
-	}
-
-	function resolve(mid, ref) {
-		return makeModuleMap(mid, ref).mid;
-	}
-
-	function toUrl(name, ref) {
-		var map = makeModuleMap(name + '/x', ref);
-		var url = map.url;
-		return url.slice(0, url.length - 5);
-	}
-
-	function resolvePrid(plugin, prid, req) {
-		return plugin.normalize ? plugin.normalize(prid, req.resolve) : req.resolve(prid);
-  }
-
-	// @mid - <module id>
-	// @ref - <referrence module instance>
-	function getModule(mid, ref) {
-		var match = mid.match(/^(.+?)\!(.*)$/);
-		var result;
-		if (match) {
-			var plugin = getModule(match[1], ref);
-			if (!match[2]) { return plugin; }
-			var contextRequire = createRequire(ref);
-			var prid;
-			if (plugin.load) {
-				prid = resolvePrid(plugin, match[2], contextRequire);
-				mid = plugin.mid + "!" + prid;
-			} else {
-				prid = match[2];
-				//mid = plugin.mid + "!*@" + uid++;
-				mid = plugin.mid + "!" + makeModuleMap(prid, ref).mid;
-			}
-			result = {
-				mid: mid,
-				plugin: plugin,
-				req: contextRequire,
-				prid: prid,
-				resolveId: !plugin.load,
-				injected: 0,
-				executed: 0
-			};
-		} else {
-			result = makeModuleMap(mid, ref);
-		}
-		return registry[result.mid] || (registry[result.mid] = result);
-	}
-
-	// @module - <module instalnce>
-	function injectModule(module) {
-		if (!module.injected) {
-			var plugin = module.plugin;
-			if (plugin) {
-				if (plugin.load) {
-					onRequested(module);
-					if (has("loader-trace-api")) {
-						trace("inject-module", ["xhr", module.mid]);
-					}
-					plugin.load(module.prid, module.req, function(result) {
-						var def = function() {
-							return result;
-						};
-						defineModule(module, [], def);
-						if (loadsum !== cursum) {
-							checkComplete();
-						}
-					});
-				} else if (plugin.loadQ) {
-					plugin.loadQ.push(module);
+	function checkComplete() {
+		!guardCheck && idleExec(function() {
+			for (var cursum, module, i = 0; i < execQ.length;) {
+				module = execQ[i];
+				if (module.executed === EXECUTED) {
+					execQ.splice(i, 1);
 				} else {
-					plugin.loadQ = [module];
-					execQ.unshift(plugin);
-					if (plugin.injected === loaded && !plugin.load) {
-						execModule(plugin);
+					cursum = execsum;
+					execModule(module);
+					if (cursum !== execsum) {
+						i = 0;
 					} else {
-						injectModule(plugin);
+						i++;
 					}
-				}
-			} else {
-				var cursum = loadsum;
-				onRequested(module);
-				if (has("loader-trace-api")) {
-					trace("inject-module", ["script", module.mid]);
-				}
-				injectUrl(module.url, function(node) {
-					if (has("ie-event-behavior") && node) {
-						amd = node.amd;
-					}
-					if (amd) {
-						defineModule(module, amd[0], amd[1]);
-					}
-					amd = 0;
-					if (module.injected !== loaded) {
-						signal(error, makeError("nonamdError", [url, module.mid]));
-					}
-					// some modules arrived, do check
-					if (loadsum !== cursum) {
-						checkComplete();
-					}
-				}, module);
-			}
-		}
-	}
-
-	var injectUrl;
-
-	if (has("host-browser")) {
-		var head = document.getElementsByTagName('head')[0];
-		var baseElement = document.getElementsByTagName('base')[0];
-		head = baseElement ? baseElement.parentNode : head;
-
-		injectUrl = function(url, callback, module) {
-			var node = document.createElement('script');
-			var loadHandler = bind(node, 'load', 'onreadystatechange', function(e) {
-				if (e.type === "load" || /complete|loaded/.test(node.readyState)) {
-					loadHandler();
-					errorHandler();
-					callback && callback(node);
-				}
-			});
-			var errorHandler = bind(node, 'error', 'onerror', function(e) {
-				loadHandler();
-				errorHandler();
-				signal(error, makeError("scriptError", [url, e]));
-			});
-			node.type = 'text/javascript';
-			node.charset = 'utf-8';
-			node.async = true;
-			node.src = url;
-
-			if (baseElement) {
-				head.insertBefore(node, baseElement);
-			} else {
-				head.appendChild(node);
-			}
-
-			return node;
-		};
-	}
-
-	var loadsum = 0;
-	// @module - <module instalnce>
-	// @deps - <dependencies array>
-	// @def - <function>
-	function defineModule(module, deps, def) {
-		var mid = module.mid;
-
-		if (has("loader-trace-api")) {
-			trace("define-module", [module.mid, deps.slice(0)]);
-		}
-
-		if (module.injected === loaded) {
-			signal(error, makeError("multipleDefine", [module.mid]));
-			return module;
-		}
-
-		loadsum++;
-		mix(module, {
-			injected: loaded,
-			deps: resolveDependencies(deps, module, module),
-			def: def,
-			cjs: {
-				id: module.mid,
-				url: module.url,
-				exports: (module.result = {}),
-				/*setExports: function(exports) {
-					module.cjs.exports = exports;
-				},*/
-				config: function() {
-					return module.config;
 				}
 			}
 		});
-
-		if (waiting[module.mid]) {
-			onLoaded(module);
-			injectDependencies(module);
-		}
-
-		return module;
 	}
 
+	var amd = false;
+	var waiting = {};
+	var loadsum = 0;
 	var execsum = 0;
 	var abortExec = {};
 	var execTrace = [];
 
 	// @module - <module instalnce>
-	function execModule(module) {
-		if (module.executed === executing) {
-			trace("circular-dependency", [execTrace.concat(module.mid).join(" => ")]);
-			return !module.def ? abortExec :	(module.cjs && module.cjs.exports);
+	// @deps - <dependencies array>
+	// @def - <function>
+	function defineModule(module, deps, def) {
+		var mid = module.mid;
+		if (has("loader-trace-api")) {
+			trace("define-module", [module.mid, deps.slice(0)]);
 		}
-		if (!module.injected) {
-			injectModule(module);
-			return abortExec;
+		if (module.injected === LOADED) {
+			signal(error, makeError("multipleDefine", [module.mid]));
+			return module;
 		}
-		if (!module.executed) {
-			if (!module.def) {
-				return abortExec;
+		loadsum++;
+		mix(module, {
+			injected: LOADED,
+			deps: resolveDeps(deps, module, module),
+			def: def,
+			cjs: {
+				id: module.mid,
+				url: module.url,
+				exports: (module.result = {})
 			}
+		});
+		if (waiting[mid] || waiting[module.url]) {
+			delete waiting[mid];
+			injectDeps(module);
+		}
+		return module;
+	}
 
+	// @module - <module instalnce>
+	function execModule(module) {
+		// 循环依赖
+		if (module.executed === EXECUTING) {
+			trace("circular-dependency", [execTrace.concat(module.mid).join(" => ")]);
+			return module.cjs.exports;
+		}
+		// 执行模块
+		if (!module.executed) {
+			if (!module.def) { return abortExec }
 			var args = [];
 			var deps = module.deps;
 			var i = 0;
 			var arg;
-
 			if (has("loader-trace-api")) {
 				execTrace.push(module.mid);
 				trace("exec-module", ["exec", module.mid]);
 			}
-
-			module.executed = executing;
-
+			module.executed = EXECUTING;
 			while (arg = deps[i++]) {
 				var ret = ((arg === cjsRequire) ? createRequire(module) :
 					((arg === cjsExports) ? module.cjs.exports :
@@ -660,116 +609,289 @@
 				}
 				args.push(ret);
 			}
-
-			// set module result
+			// 执行factory, 暴露模块接口
 			if (has("loader-trace-api")) {
 				trace("run-factory", [module.mid]);
 			}
 			var factory = module.def;
-			try {
-				var result = factory.apply(null, args);
-			} catch(e) {
-				signal(error, makeError("factoryThrow", [module.mid, e]));
+			var result = isFunction(factory) && !module.plugin ? factory.apply(global, args) : factory;
+			result = module.result = typeof result === "undefined" && module.cjs ? module.cjs.exports : result;
+			module.executed = EXECUTED;
+			module.execsum = execsum++;
+			if (module.clear) { delete registry[module.mid] }
+			if (module.url) { delete waiting[module.url] }
+			if (module.loadQ) {
+				if (result && result.load) {
+					forEach(["load", "normalize"], function(n) {
+						module[n] = result[n];
+					});
+				}
+				forEach(module.loadQ, function(src) {
+					var prid = resolveResource(module, src.prid, src.req);
+					var mid = module.mid + "!" + prid;
+					var resource;
+					if (!(resource = registry[mid])) {
+						resource = mix(mix({}, src), {prid: prid, mid: mid});
+						injectPlugin(registry[mid] = resource);
+					}
+					src.fix(resource);
+					delete registry[src.mid];
+				});
+				module.loadQ = undefined;
 			}
-			module.result = typeof result === "undefined" && module.cjs ? module.cjs.exports : result;
-			onExecuted(module);
-			if (has("loader-trace-api")) {
-				execTrace.pop();
-			}
+			if (has("loader-trace-api")) { execTrace.pop() }
 		}
 		return module.result;
 	}
 
-	function onRequested(module) {
-		module.injected = requested;
-		waiting[module.mid] = 1;
-		if (module.url) {
-			waiting[module.url] = 1;
-		}
-	}
-
-	function onLoaded(module, mids, factory) {
-		module.injected = loaded;
-		delete waiting[module.mid];
-		if (module.url) {
-			delete waiting[module.url];
-		}
-		if (isEmpty(waiting)) {
-			// todo
-		}
-	}
-
-	function onExecuted(module) {
-		module.executed = executed;
-		module.execsum = execsum++;
-		if (module.loadQ) {
-			var ret = module.result;
-			if (ret.load) {
-				module.load = function() {
-					return ret.load.apply(ret, arguments);
-				};
+	// @module - <module instance>
+	function injectModule(module) {
+		if (module.plugin) {
+			injectPlugin(module);
+		} else if (!module.injected) {
+			var cursum = loadsum;
+			module.injected = REQUESTED;
+			waiting[module.mid] = true;
+			waiting[module.url] = true;
+			if (has("loader-trace-api")) {
+				trace("inject-module", ["script", module.mid]);
 			}
-			if (ret.normalize) {
-				module.normalize = function() {
-					return ret.normalize.apply(ret, arguments);
-				};
-			}
-			for (var i = 0, loadQ = module.loadQ, src; src = loadQ[i]; ++i) {
-				var prid = resolvePrid(module, src.prid, src.req);
-				var mid = module.mid + "!" + prid;
-				var srcModule;
-				if (!(srcModule = registry[mid])) {
-					registry[mid] = srcModule = mix(mix({}, src), {prid: prid, mid: mid});
-				} else {
-					srcModule.prid = prid;
+			injectUrl(module.url, function(node) {
+				if (has("ie-event-behavior") && node) {
+					amd = node.amd;
 				}
-				src.resolveId(srcModule);
+				if (amd) {
+					defineModule(module, amd[0], amd[1]);
+					amd = false;
+				}
+				if (module.injected !== LOADED && shims[module.mid]) {
+					var shim = makeShim(module);
+					defineModule(module, shim.deps, shim.def);
+				}
+				if (module.injected !== LOADED) {
+					signal(error, makeError("nonamdError", [module.url, module.mid]));
+				}
+				if (cursum !== loadsum) {
+					checkComplete();
+				}
+			}, module);
+		}
+	}
+
+	// @module - <module instance>
+	function injectPlugin(module) {
+		var plugin = module.plugin;
+		if (plugin.load) {
+			var prid = resolveResource(plugin, module.prid, module.req);
+			var mid = plugin.mid + "!" + prid;
+			var src = module;
+			if (!registry[mid]) {
+				registry[mid] = mix(mix({}, src), {prid: prid, mid: mid});
+				src.fix(module);
 				delete registry[src.mid];
-				injectModule(srcModule);
 			}
-			module.loadQ = undefined;
-		}
-		for (var i = 0; i < execQ.length;) {
-			if (execQ[i] === module) {
-				execQ.splice(i, 1);
-			} else {
-				i++;
+			module = registry[mid];
+			if (module.injected) { return }
+			module.injected = REQUESTED;
+			if (has("loader-trace-api")) {
+				trace("inject-module", ["xhr", module.mid]);
 			}
-		}
-		if (module.clear) {
-			delete registry[module.mid];
+			plugin.load(module.prid, module.req, function(result) {
+				defineModule(module, [], result);
+				checkComplete();
+			});
+		} else if (plugin.loadQ) {
+			plugin.loadQ.push(module);
+		} else {
+			plugin.loadQ = [module];
+			execQ.unshift(plugin);
+			injectModule(plugin);
 		}
 	}
 
-	var guarding = 0;
-
-	function idleExec(exec) {
-		try {
-			guarding++;
-			exec();
-		} finally {
-			guarding--;
+	// @module - <module instalnce>
+	function createRequire(module) {
+		var result = (!module && req) || module.require;
+		if (!result) {
+			module.require = result = function(mid, callback) {
+				return contextRequire(mid, callback, module);
+			};
+			mix(result, req);
+			result.resolve = function(mid) {
+				return resolve(mid, module).mid;
+			};
+			result.toUrl = function(url) {
+				return toUrl(url, module);
+			};
+			result.context = function(mid) {
+				return createRequire(getModule(mid, module));
+			};
 		}
+		return result;
 	}
 
-	function checkComplete() {
-		if (guarding) { return; }
+	// @deps - <string or array>
+	// @module - <module instance>
+	// @ref - <referrence module instalnce>
+	function resolveDeps(deps, module, ref) {
+		var result = [];
+		forEach(deps, function(mid, i) {
+			var dep = getModule(mid, ref);
+			if (dep.fix) {
+				dep.fix = function(result) {
+					module.deps[i] = result;
+				};
+			}
+			result.push(dep);
+		});
+		return result;
+	}
+
+	// @module - <module instalnce>
+	function injectDeps(module) {
 		idleExec(function() {
-			for (var cursum, module, i = 0; i < execQ.length;) {
-				cursum = execsum;
-				module = execQ[i];
-				execModule(module);
-				if (cursum !== execsum) {
-					i = 0;
-				} else {
-					i++;
-				}
-			}
+			forEach(module.deps, function(dep) {
+				injectModule(dep);
+			});
 		});
 	}
 
+	var injectUrl;
+
+	if (has("host-browser")) {
+		var head = document.getElementsByTagName("head")[0];
+		var baseElement = document.getElementsByTagName("base")[0];
+		var fetched = {};
+		head = baseElement ? baseElement.parentNode : head;
+
+		injectUrl = function(url, callback) {
+			if (fetched[url]) { return }
+			fetched[url] = true;
+			var node = document.createElement("script");
+			var loadHandler = bind(node, "load", "onreadystatechange", function(e) {
+				if (e.type === "load" || /complete|loaded/.test(node.readyState)) {
+					loadHandler();
+					errorHandler();
+					callback && callback(node);
+				}
+			});
+			var errorHandler = bind(node, "error", "onerror", function(e) {
+				loadHandler();
+				errorHandler();
+				signal(error, makeError("scriptError", [url, e]));
+			});
+			node.type = "text/javascript";
+			node.charset = "utf-8";
+			//node.crossOrigin = "anonymous";
+			node.async = true;
+			node.src = url;
+			if (baseElement) {
+				head.insertBefore(node, baseElement);
+			} else {
+				head.appendChild(node);
+			}
+			return node;
+		};
+	}
+
+	// Provide a built-in dom-ready API instead of a modular dom-ready
+	// to ensure that dom-ready is more faster and safer
+	if ( has("host-browser") ) {
+		var doc = global.document,
+			readyStates = { "loaded": 1, "complete": 1 },
+			isReady = !!(readyStates[doc.readyState] || doc.body),
+			readyList = [],
+			recursiveGuard,
+			processQueue = function() {
+				if ( recursiveGuard ) {
+					return;
+				}
+				recursiveGuard = true;
+				while ( readyList.length ) {
+					try {
+						(readyList.shift())( doc );
+					} catch(err) {}
+				}
+				recursiveGuard = false;
+			},
+			ensureReady = function() {
+				if ( !doc.body ) {
+					return setTimeout( ensureReady );
+				}
+				isReady = true;
+				processQueue();
+			},
+			completed = function( e ) {
+				if ( doc.addEventListener || e.type === "load" || readyStates[doc.readyState] ) {
+					unbindListener();
+					ensureReady();
+				}
+			},
+			unbindListener = function() {
+				if ( doc.addEventListener ) {
+					doc.removeEventListener( "DOMContentLoaded", completed, false );
+					global.removeEventListener( "load", completed, false );
+
+				} else {
+					doc.detachEvent( "onreadystatechange", completed );
+					global.detachEvent( "onload", completed );
+				}
+			},
+			ready = req.ready = function( listener ) {
+				readyList.push( listener );
+				if ( isReady ) {
+					processQueue();
+				}
+			};
+
+		// TODO: consider working as plugin loader
+		/*ready.load = function() {
+
+		};*/
+
+		if ( !isReady ) {
+			if ( doc.readyState === "complete" ) {
+				setTimeout( ensureReady );
+			} else if ( doc.addEventListener ) {
+				doc.addEventListener( "DOMContentLoaded", completed, false );
+				global.addEventListener( "load", completed, false );
+			} else {
+				doc.attachEvent( "onreadystatechange", completed );
+				global.attachEvent( "onload", completed );
+				var top = false;
+				try {
+					top = global.frameElement == null && doc.documentElement;
+				} catch(e) {}
+				if ( top && top.doScroll ) {
+					(function doScrollCheck() {
+						if ( !isReady ) {
+							try {
+								top.doScroll("left");
+							} catch(e) {
+								return setTimeout( doScrollCheck, 50 );
+							}
+							unbindListener();
+							ensureReady();
+						}
+					})();
+				}
+			}
+		}
+	}
+
 	// EXPOSE API
+	if (typeof require === "object") { req(require) }
+	def.amd = {vendor: "http://veryos.com"};
 	global.define = def;
 	global.require = req;
+
+	if (has("loader-debug-api")) {
+		req.injectUrl = injectUrl;
+		req.modules = registry;
+		req.exeQ = execQ;
+		req.waiting = waiting;
+		req.normalizePath = normalizePath;
+		req.makeModuleMap = makeModuleMap;
+	}
 
 }( this );

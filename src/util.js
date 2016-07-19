@@ -32,6 +32,16 @@
 		return dest;
 	}
 
+	function forEach(array, iter) {
+		if (array.forEach) {
+			array.forEach(iter);
+		} else {
+			for (var i = 0, l = array.length; i < l; ++i) {
+				iter(array[i], i);
+			}
+		}
+	}
+
 	function makeError(error, info) {
 		var descr = {src: "kjs.loader"};
 		if (info) { descr.info = info; }
