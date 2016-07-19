@@ -111,7 +111,7 @@
 		return hub.signal.call(hub, type, args);
 	}
 
-	// 模块状态
+	// module states
 	var REQUESTED = 1;
 	var LOADED = 2;
 	var EXECUTING = 4;
@@ -124,7 +124,7 @@
 		EXECUTED = "executed";
 	}
 
-	// 注册的模块
+	// registered modules map
 	var registry = {};
 	// @mid - <module id>
 	// @ref - <referrence module instance>
@@ -175,7 +175,7 @@
 				prid = match[2];
 				mid = plugin.mid + "!" + prid;
 			}
-			// 运行时的模块id
+			// deduce runtime module-id
 			else {
 				if (ready) {
 					prid = resolveResource(plugin, match[2], req);
@@ -249,7 +249,7 @@
 		return outputParts.join('/');
 	}
 
-	// 内置的cjs模块(require, exports, module)
+	// built-in cjs module metas(require, exports, module)
 	var cjsmeta = {
 		def: true,
 		result: true,
@@ -274,10 +274,10 @@
 			mid = 0;
 		}
 		if (mid && !isString(mid)) { mid = 0; }
-		// cjs方式定义模块
+		// cjs module
 		if (isFunction(factory) && l === 1) {
 			deps = ["require", "exports", "module"];
-			// 从factory提取依赖
+			// extract dependencies from factory
 			factory.toString()
 				.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/mg, "")
 				.replace(/require\s*\(\s*(["'])(.*?[^\\])\1\s*\)/g, function(a, q, m) {
@@ -285,17 +285,17 @@
 					return a;
 				});
 		}
-		// 确保依赖是一个数组
+		// make sure deps is an array
 		else if (!isArray(deps)) {
 			deps = isString(deps) ? [deps] : [];
 		}
-		// 指定了模块ID(相对于baseUrl)
-		// 	1. 开发版本，如指明模块ID则必须相对于baseUrl
-		// 	2. 线上版本，模块经过编译打包后计算出来的模块ID
+		// explict module id:
+		// 	1. devlopment version，explict module id should be relative to baseUrl
+		// 	2. built version，module id was computed by the packer
 		if (mid) {
 			defineModule(getModule(mid, null, true), deps, factory);
 		}
-		// 异步按需加载模块，收集模块信息
+		// ie9- below, async loading
 		else {
 			if (has("ie-event-behavior")) {
 				for (var i = document.scripts.length - 1, script; (script = document.scripts[i]); --i) {
@@ -357,7 +357,7 @@
 	// @ref - <referrence module instalnce>
 	function contextRequire(deps, callback, ref) {
 		var module;
-		// 获取模块接口
+		// load module's export
 		if (isString(deps)) {
 			module = getModule(deps, ref);
 			if (!module.executed) {
@@ -365,7 +365,7 @@
 			}
 			return module.result;
 		}
-		// 加载模块
+		// load module and its export
 		else if (isArray(deps)) {
 			module = getModule("*@" + uid++, ref);
 			mix(module, {
@@ -451,12 +451,12 @@
 
 	// @module - <module instalnce>
 	function execModule(module) {
-		// 循环依赖
+		// circular dependecies
 		if (module.executed === EXECUTING) {
 			trace("circular-dependency", [execTrace.concat(module.mid).join(" => ")]);
 			return module.cjs.exports;
 		}
-		// 执行模块
+		// execute module
 		if (!module.executed) {
 			if (!module.def) { return abortExec }
 			var args = [];
@@ -483,7 +483,7 @@
 				}
 				args.push(ret);
 			}
-			// 执行factory, 暴露模块接口
+			// run factory, export module
 			if (has("loader-trace-api")) {
 				trace("run-factory", [module.mid]);
 			}
@@ -755,7 +755,7 @@
 
 	// EXPOSE API
 	if (typeof require === "object") { req(require) }
-	def.amd = {vendor: "http://veryos.com"};
+	def.amd = def.cmd = {vendor: "http://veryos.com"};
 	global.define = def;
 	global.require = req;
 

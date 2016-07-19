@@ -17,6 +17,7 @@ var gulp = require("gulp")
 // # app configs
 var src = "src/";
 var dest = "dist/";
+var product = false;
 
 
 // # clean
@@ -52,7 +53,7 @@ gulp.task("concat", function() {
 			if (typeof cfg === "string") {
 				cfg = '"' + cfg.replace(/"/g, '\"') + '"';
 			}
-			if (cfg) {
+			if (cfg !== undefined) {
 				source += '\thas.add("' + name + '", ' + cfg + ');\n';
 			}
 		}
@@ -77,7 +78,7 @@ gulp.task("concat", function() {
 		])
 		.pipe(plumber())
 		.pipe(setHasFeature({
-			"loader-debug-api": 1,
+			"loader-debug-api": product ? 0 : 1,
 			"loader-config-api": 1,
 			"loader-trace-api": 1
 		}))
@@ -112,9 +113,11 @@ gulp.task("serv", function() {
 
 // # build
 gulp.task("default", function(cb) {
+	product = false;
 	sequence("clean", "concat", "serv", cb);
 });
 
 gulp.task("release", function(cb) {
+	product = true;
 	sequence("clean", "concat", "uglify", cb);
 });
