@@ -60,7 +60,7 @@ copy dist/k.min.js to your project - 复制dist/k.min.js到你的项目中
 
 	[product version][min]
 
-	[devlopment version][max]
+	[development version][max]
 
 [min]: https://raw.githubusercontent.com/yessky/loader/master/dist/k.min.js
 [max]: https://raw.githubusercontent.com/yessky/loader/master/dist/k.js

@@ -413,7 +413,7 @@
 			deps = isString(deps) ? [deps] : [];
 		}
 		// explict module id:
-		// 	1. devlopment version，explict module id should be relative to baseUrl
+		// 	1. development version，explict module id should be relative to baseUrl
 		// 	2. built version，module id was computed by the packer
 		if (mid) {
 			defineModule(getModule(mid, null, true), deps, factory);
