@@ -50,15 +50,17 @@ require(["./text!README.md"], function(txt) {
 	1. build from source
 
 	```
-		workspace@yourname: git clone https://github.com/yessky/loader.git
-		workspace@yourname: cd loader
-		loader@yourname:		gulp release
-		copy dist/k.min.js to your project - 复制dist/k.min.js到你的项目中
+	workspace@yourname: git clone https://github.com/yessky/loader.git
+	workspace@yourname: cd loader
+	loader@yourname:		gulp release
+	copy dist/k.min.js to your project - 复制dist/k.min.js到你的项目中
 	```
 
-	2. directly download [product version][min]
+	2. directly download
 
-	3. directly download [devlopment version][max]
+	[product version][min]
+
+	[devlopment version][max]
 
 	[min]: https://raw.githubusercontent.com/yessky/loader/master/dist/k.min.js
 	[max]: https://raw.githubusercontent.com/yessky/loader/master/dist/k.js
@@ -76,7 +78,7 @@ require(["./text!README.md"], function(txt) {
 [A running proudct based on the loader - 基于该loader的生产项目 咪咕音乐触屏版][product]
 
 [builder]: https://github.com/yessky/kspack
-[sampe]: https://github.com/yessky/spa-sample-project
+[sample]: https://github.com/yessky/spa-sample-project
 [product]: http://m.music.migu.cn
 
 ## License - 授权
